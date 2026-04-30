@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+.vite/
+
+# Database & uploads (runtime state — created by `npm run seed` / app usage)
+server/data/
+server/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+
+# Claude Code session state
+.claude/
+
+# Generated requirements text (regenerable from PDF)
+requirements.txt
+
+# Big standalone HTML bundle (regenerable; the loose source files in handoff/ are enough)
+handoff/rolemaster/project/RoleMaster Prototype (standalone).html
