@@ -9,7 +9,9 @@ import { db } from '../db.js';
 import { requireAuth } from '../auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
+const UPLOAD_DIR = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.resolve(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 export const fileRoutes = new Hono();

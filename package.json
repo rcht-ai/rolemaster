@@ -1,0 +1,17 @@
+{
+  "name": "rolemaster",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI capability delivery platform — three role-separated portals (supplier/curator/sales) on one stack.",
+  "scripts": {
+    "install:all": "npm install --prefix server && npm install --prefix app",
+    "build": "npm run build --prefix app",
+    "seed": "npm run seed --prefix server",
+    "start": "npm start --prefix server",
+    "dev:api": "npm run dev --prefix server",
+    "dev:web": "npm run dev --prefix app"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

@@ -40,11 +40,14 @@ export function destroySession(token) {
   db.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
 }
 
-// Hono helpers
+// Hono helpers — Secure flag on in production so cookies aren't sent over HTTP.
+const IS_PROD = process.env.NODE_ENV === 'production';
+
 export function setSessionCookie(c, token) {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'Lax',
+    secure: IS_PROD,
     path: '/',
     maxAge: SESSION_DAYS * 86400,
   });

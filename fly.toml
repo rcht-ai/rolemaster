@@ -1,0 +1,42 @@
+# Fly.io deployment config for RoleMaster.
+# Single VM serves both API + SPA. SQLite + uploads on a 1GB persistent volume.
+#
+# To deploy:
+#   1. Install fly CLI: https://fly.io/docs/hands-on/install-flyctl/
+#   2. fly auth login
+#   3. fly launch --no-deploy           (creates the app, picks a unique name)
+#   4. fly volumes create rm_data --size 1 --region <your-region>
+#   5. fly secrets set ANTHROPIC_API_KEY=sk-ant-...   (optional — for real Copilot)
+#   6. fly deploy
+#
+# `fly launch` may rewrite the app name and primary_region in this file.
+
+app = "rolemaster"
+primary_region = "iad"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  DATA_DIR = "/data"
+  UPLOAD_DIR = "/uploads"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[mounts]]
+  source = "rm_data"
+  destination = "/data"
+
+[[mounts]]
+  source = "rm_uploads"
+  destination = "/uploads"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512

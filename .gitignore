@@ -33,6 +33,9 @@ Thumbs.db
 # Claude Code session state
 .claude/
 
+# Wrangler / Cloudflare cache
+.wrangler/
+
 # Generated requirements text (regenerable from PDF)
 requirements.txt
 

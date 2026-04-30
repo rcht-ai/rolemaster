@@ -117,6 +117,59 @@ The default model is `claude-sonnet-4-6`. Override with `COPILOT_MODEL=claude-op
 10. Sign out, sign in as `sales@rolemaster.io` at `/sales`
 11. Catalog now shows the published RolePack
 
+## Deploy
+
+In production the **server** also serves the **built SPA** from the same port, so a single deploy covers both. Two recommended paths:
+
+### Fly.io (recommended — true persistence on a free volume)
+
+```bash
+# one-time setup
+brew install flyctl                       # or: https://fly.io/docs/hands-on/install-flyctl/
+fly auth login
+
+# from the repo root
+fly launch --no-deploy                    # picks a unique app name; rewrites fly.toml
+fly volumes create rm_data --size 1 --region iad
+fly volumes create rm_uploads --size 1 --region iad
+fly secrets set ANTHROPIC_API_KEY=sk-ant-...   # optional — for real Copilot
+fly deploy
+```
+
+Your app is live at `https://<app-name>.fly.dev`. SQLite and uploads survive deploys via the mounted volumes.
+
+### Render (one-click from the GitHub repo)
+
+1. https://dashboard.render.com/blueprints → **New Blueprint Instance** → connect this repo
+2. Render reads [render.yaml](render.yaml) and provisions a Docker service
+3. In the service's Environment tab, set `ANTHROPIC_API_KEY` (optional)
+4. Hit Deploy
+
+Free tier note: persistent disks require a paid plan. On the free plan the SQLite DB resets on every redeploy.
+
+### Self-hosted Docker
+
+```bash
+docker build -t rolemaster .
+docker run -d -p 3001:3001 \
+  -v rm-data:/data \
+  -v rm-uploads:/uploads \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  rolemaster
+```
+
+### Production env vars
+
+| Var | Purpose |
+|---|---|
+| `PORT` | Listen port (default `3001`) |
+| `NODE_ENV` | Set to `production` to enable `Secure` cookies |
+| `DATA_DIR` | Where to put `rolemaster.db` (default `server/data`) |
+| `UPLOAD_DIR` | Where to write file uploads (default `server/uploads`) |
+| `CORS_ORIGIN` | Restrict CORS (default reflects request origin — fine for same-origin deploys) |
+| `ANTHROPIC_API_KEY` | Enables the real Claude Copilot. Without this, falls back to keyword extraction. |
+| `COPILOT_MODEL` | Override the model (default `claude-sonnet-4-6`) |
+
 ## Design source
 
 The original HTML/JSX prototype from Claude Design (claude.ai/design) is preserved under [handoff/](handoff/) for reference. The production app reimplements it in React + a real backend.
