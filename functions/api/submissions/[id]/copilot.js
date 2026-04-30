@@ -1,36 +1,28 @@
-// Copilot routes — Claude-powered field extraction.
-// Real AI when ANTHROPIC_API_KEY is set; otherwise falls back to a keyword matcher
-// so the demo keeps working out of the box.
+// POST /api/submissions/:id/copilot — Claude-powered field extraction from a free-text user msg.
+// GET  /api/submissions/:id/copilot — chat history.
+//
+// Real AI when env.ANTHROPIC_API_KEY is set; otherwise a keyword-matcher fallback
+// keeps the demo working out of the box.
 
-import { Hono } from 'hono';
 import Anthropic from '@anthropic-ai/sdk';
-import { db } from '../db.js';
-import { requireAuth } from '../auth.js';
-import { loadFields } from '../lib/fields.js';
+import { json, rowToField } from '../../_helpers.js';
 
-export const copilotRoutes = new Hono();
-copilotRoutes.use('*', requireAuth);
+const MODEL = 'claude-sonnet-4-6';
 
-// Lazy client — only constructed when the key is present.
-let anthropic = null;
-function client() {
-  if (anthropic) return anthropic;
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  anthropic = new Anthropic();
-  return anthropic;
+async function loadFields(db, submissionId) {
+  const { results } = await db.prepare(
+    'SELECT * FROM submission_fields WHERE submission_id = ? ORDER BY section, field_id'
+  ).bind(submissionId).all();
+  const out = {};
+  for (const r of (results || [])) out[r.field_id] = rowToField(r);
+  return out;
 }
 
-const MODEL = process.env.COPILOT_MODEL || 'claude-sonnet-4-6';
-
-// Extract structured field updates from a free-text user message using Claude.
-// The field schema is large and stable across requests for one submission, so we
-// place a cache_control breakpoint after it — every subsequent request hits the cache.
-async function extractWithClaude(userText, fields, lang) {
-  const c = client();
-  if (!c) return null;
+async function extractWithClaude(apiKey, userText, fields, lang) {
+  const client = new Anthropic({ apiKey });
 
   const fieldList = Object.entries(fields)
-    .filter(([, f]) => f.section !== 1) // skip company-basics; those come from the supplier record
+    .filter(([, f]) => f.section !== 1)
     .map(([id, f]) => ({
       id,
       label: f.label,
@@ -50,16 +42,14 @@ Rules:
 - Do not invent facts. If a field isn't covered, omit it.
 - Reply in the user's language (zh if they wrote Chinese, otherwise en).`;
 
-  const fieldSchemaJson = JSON.stringify(fieldList, null, 2);
-
-  const response = await c.messages.create({
+  const response = await client.messages.create({
     model: MODEL,
     max_tokens: 2048,
     system: [
       { type: 'text', text: SYSTEM },
       {
         type: 'text',
-        text: `Available fields for this product submission:\n\n${fieldSchemaJson}`,
+        text: `Available fields for this product submission:\n\n${JSON.stringify(fieldList, null, 2)}`,
         cache_control: { type: 'ephemeral' },
       },
     ],
@@ -104,19 +94,13 @@ Rules:
 
   const text = response.content.find(b => b.type === 'text')?.text;
   if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(text); } catch { return null; }
 }
 
-// Keyword-based fallback — preserves the demo experience without an API key.
-function extractFallback(text, fields, lang) {
+function extractFallback(text, fields) {
   const isZh = /[一-龥]/.test(text);
   const lower = text.toLowerCase();
   const updates = [];
-
   const tryFill = (id, vz, ve, status = 'filled') => {
     if (!fields[id]) return;
     if (fields[id].status === 'filled' || fields[id].status === 'ai') return;
@@ -145,10 +129,7 @@ function extractFallback(text, fields, lang) {
       if (f.status === 'empty' || f.status === 'weak') {
         updates.push({
           id,
-          value: {
-            zh: '(已根据你刚才的描述更新)',
-            en: '(updated from your description)',
-          },
+          value: { zh: '(已根据你刚才的描述更新)', en: '(updated from your description)' },
           status: 'filled',
         });
       }
@@ -161,77 +142,93 @@ function extractFallback(text, fields, lang) {
   return { reply, updates };
 }
 
-copilotRoutes.post('/submissions/:id/copilot', async (c) => {
-  const u = c.get('user');
-  const id = c.req.param('id');
-  const { text, lang = 'zh' } = await c.req.json().catch(() => ({}));
-  if (!text || !text.trim()) return c.json({ error: 'empty' }, 400);
+export async function onRequestPost(context) {
+  const u = context.data.user;
+  const id = context.params.id;
+  const { request, env } = context;
 
-  const sub = db.prepare(`SELECT supplier_id FROM submissions WHERE id = ?`).get(id);
-  if (!sub) return c.json({ error: 'not_found' }, 404);
+  let body;
+  try { body = await request.json(); } catch { body = {}; }
+  const { text, lang = 'zh' } = body;
+  if (!text || !text.trim()) return json({ error: 'empty' }, 400);
+
+  const sub = await env.DB.prepare(
+    'SELECT supplier_id FROM submissions WHERE id = ?'
+  ).bind(id).first();
+  if (!sub) return json({ error: 'not_found' }, 404);
   if (u.role !== 'curator' && (u.role !== 'supplier' || sub.supplier_id !== u.supplier_id)) {
-    return c.json({ error: 'forbidden' }, 403);
+    return json({ error: 'forbidden' }, 403);
   }
 
-  const fields = loadFields(db, id);
+  const fields = await loadFields(env.DB, id);
 
-  // Persist the user's message.
-  db.prepare(`INSERT INTO chat_messages (submission_id, role, content) VALUES (?, 'user', ?)`)
-    .run(id, text);
+  // Persist user's message.
+  await env.DB.prepare(
+    `INSERT INTO chat_messages (submission_id, role, content) VALUES (?, 'user', ?)`
+  ).bind(id, text).run();
 
   let result = null;
-  try {
-    result = await extractWithClaude(text, fields, lang);
-  } catch (err) {
-    console.error('Claude extraction failed:', err.message);
+  if (env.ANTHROPIC_API_KEY) {
+    try { result = await extractWithClaude(env.ANTHROPIC_API_KEY, text, fields, lang); }
+    catch (err) { console.error('Claude failed:', err.message); }
   }
-  if (!result) result = extractFallback(text, fields, lang);
+  if (!result) result = extractFallback(text, fields);
 
-  // Apply the updates.
+  // Apply updates.
   if (result.updates?.length) {
-    const stmt = db.prepare(`UPDATE submission_fields SET value_zh = ?, value_en = ?, status = ?
-                             WHERE submission_id = ? AND field_id = ?`);
+    const stmt = env.DB.prepare(
+      `UPDATE submission_fields SET value_zh = ?, value_en = ?, status = ?
+       WHERE submission_id = ? AND field_id = ?`
+    );
+    const batch = [];
     for (const upd of result.updates) {
       const vz = upd.value?.zh ?? '';
       const ve = upd.value?.en ?? '';
-      stmt.run(vz, ve, upd.status || 'filled', id, upd.id);
+      batch.push(stmt.bind(vz, ve, upd.status || 'filled', id, upd.id));
     }
-    db.prepare(`UPDATE submissions SET updated_at = datetime('now') WHERE id = ?`).run(id);
+    batch.push(env.DB.prepare(`UPDATE submissions SET updated_at = datetime('now') WHERE id = ?`).bind(id));
+    await env.DB.batch(batch);
   }
 
-  // Persist the bot reply with the resolved field labels for the UI.
-  const enrichedUpdates = (result.updates || []).map(u => ({
+  const enriched = (result.updates || []).map(u => ({
     id: u.id,
     label: fields[u.id]?.label,
     value: u.value,
     status: u.status,
   }));
-  db.prepare(`INSERT INTO chat_messages (submission_id, role, content, meta) VALUES (?, 'bot', ?, ?)`)
-    .run(id, result.reply || '', JSON.stringify({ updates: enrichedUpdates }));
+  await env.DB.prepare(
+    `INSERT INTO chat_messages (submission_id, role, content, meta) VALUES (?, 'bot', ?, ?)`
+  ).bind(id, result.reply || '', JSON.stringify({ updates: enriched })).run();
 
-  return c.json({
+  return json({
     reply: result.reply,
-    updates: enrichedUpdates,
-    poweredBy: client() ? 'claude' : 'fallback',
+    updates: enriched,
+    poweredBy: env.ANTHROPIC_API_KEY ? 'claude' : 'fallback',
   });
-});
+}
 
-// Pull a submission's chat history.
-copilotRoutes.get('/submissions/:id/copilot', (c) => {
-  const u = c.get('user');
-  const id = c.req.param('id');
-  const sub = db.prepare(`SELECT supplier_id FROM submissions WHERE id = ?`).get(id);
-  if (!sub) return c.json({ error: 'not_found' }, 404);
+export async function onRequestGet(context) {
+  const u = context.data.user;
+  const id = context.params.id;
+
+  const sub = await context.env.DB.prepare(
+    'SELECT supplier_id FROM submissions WHERE id = ?'
+  ).bind(id).first();
+  if (!sub) return json({ error: 'not_found' }, 404);
   if (u.role !== 'curator' && (u.role !== 'supplier' || sub.supplier_id !== u.supplier_id)) {
-    return c.json({ error: 'forbidden' }, 403);
+    return json({ error: 'forbidden' }, 403);
   }
-  const rows = db.prepare(`SELECT role, content, meta, created_at FROM chat_messages WHERE submission_id = ? ORDER BY id`).all(id);
-  return c.json({
-    items: rows.map(r => ({
+
+  const { results } = await context.env.DB.prepare(
+    'SELECT role, content, meta, created_at FROM chat_messages WHERE submission_id = ? ORDER BY id'
+  ).bind(id).all();
+
+  return json({
+    items: (results || []).map(r => ({
       role: r.role,
       content: r.content,
       meta: r.meta ? JSON.parse(r.meta) : null,
       createdAt: r.created_at,
     })),
   });
-});
+}

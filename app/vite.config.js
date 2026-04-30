@@ -8,7 +8,12 @@ export default defineConfig({
     host: true,
     open: false,
     proxy: {
-      '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      // wrangler pages dev runs on :8788 by default and serves /api/* via Pages Functions.
+      '/api': { target: 'http://localhost:8788', changeOrigin: true },
     },
+  },
+  build: {
+    outDir: '../dist',     // repo-root dist/, sibling to functions/
+    emptyOutDir: true,
   },
 });

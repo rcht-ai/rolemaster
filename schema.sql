@@ -1,37 +1,15 @@
-// SQLite via Node's built-in node:sqlite (Node 22+, --experimental-sqlite).
-// Single file at server/data/rolemaster.db.
+-- RoleMaster — D1 schema. Same SQLite syntax as the prior local server.
+-- Apply with: wrangler d1 execute rolemaster-db --file=schema.sql --remote
 
-import { DatabaseSync } from 'node:sqlite';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import fs from 'node:fs';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : path.resolve(__dirname, '..', 'data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-
-export const db = new DatabaseSync(path.join(DATA_DIR, 'rolemaster.db'));
-db.exec('PRAGMA journal_mode = WAL');
-db.exec('PRAGMA foreign_keys = ON');
-
-const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id          TEXT PRIMARY KEY,
   email       TEXT NOT NULL UNIQUE,
-  password    TEXT NOT NULL,
+  password    TEXT NOT NULL,         -- PBKDF2 hex hash
+  salt        TEXT NOT NULL,         -- PBKDF2 hex salt
   name        TEXT NOT NULL,
   role        TEXT NOT NULL CHECK(role IN ('supplier','curator','sales')),
   supplier_id TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  token       TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  expires_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS suppliers (
@@ -84,7 +62,7 @@ CREATE TABLE IF NOT EXISTS files (
   kind        TEXT NOT NULL,
   filename    TEXT NOT NULL,
   size_bytes  INTEGER NOT NULL,
-  storage_path TEXT NOT NULL,
+  storage_key TEXT NOT NULL,         -- R2 object key (replaces filesystem path)
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -101,7 +79,7 @@ CREATE TABLE IF NOT EXISTS rolepacks (
   id          TEXT PRIMARY KEY,
   supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL,
   supplier_name TEXT NOT NULL,
-  data        TEXT NOT NULL,
+  data        TEXT NOT NULL,         -- JSON
   published_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -118,7 +96,3 @@ CREATE INDEX IF NOT EXISTS idx_submissions_supplier ON submissions(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
 CREATE INDEX IF NOT EXISTS idx_audit_sub ON audit_log(submission_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sub ON chat_messages(submission_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
-`;
-db.exec(SCHEMA);
-db.prepare(`DELETE FROM sessions WHERE expires_at < datetime('now')`).run();

@@ -1,0 +1,17 @@
+name = "rolemaster"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rolemaster-db"
+database_id = "REPLACE_ME_AFTER_wrangler_d1_create"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "rolemaster-files"
+
+# Secrets to set via `wrangler pages secret put` (NOT in this file):
+#   JWT_SECRET           — random string, used to sign session JWTs (required)
+#   ANTHROPIC_API_KEY    — sk-ant-...  (optional, enables real Copilot)

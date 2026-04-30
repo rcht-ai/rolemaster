@@ -12,77 +12,86 @@ Three role-separated portals on one stack:
 
 ## Stack
 
-- **Frontend** — React 18 + Vite, react-router-dom, no build chain beyond Vite. URL-based routing, role-gated portals, bilingual (zh / en).
-- **Backend** — Hono on Node 22+ with the built-in `node:sqlite` (no native deps). REST API, opaque session-cookie auth, bcrypt-hashed passwords.
-- **Database** — single SQLite file at `server/data/rolemaster.db`. Schema in [server/src/db.js](server/src/db.js).
-- **AI Copilot** — Claude API via `@anthropic-ai/sdk`. Uses prompt caching on the field schema and structured output for field extraction. Falls back to a keyword matcher when `ANTHROPIC_API_KEY` is unset, so the demo runs out of the box.
+- **Frontend** — React 18 + Vite, react-router-dom. Bilingual (zh / en), themed per platform.
+- **Backend** — Cloudflare Pages Functions. Pure Web-platform APIs (Web Crypto for JWT + PBKDF2; no Node deps in the runtime).
+- **Database** — Cloudflare **D1** (SQLite). Schema: [`schema.sql`](schema.sql).
+- **File storage** — Cloudflare **R2** for material uploads.
+- **AI Copilot** — Claude API via `@anthropic-ai/sdk`. Uses prompt caching + structured outputs. Falls back to a keyword matcher when `ANTHROPIC_API_KEY` isn't set.
+- **Auth** — JWT in an HttpOnly `rm_token` cookie. PBKDF2 password hashes (100k iterations, SHA-256).
+
+Mirrors the deploy + branch layout used in the `aselo` SaaS sister project.
 
 ## Project layout
 
 ```
 RoleMaster/
-├── app/                        Frontend (Vite + React)
-│   ├── src/
-│   │   ├── App.jsx             Router, role gates, theme
-│   │   ├── main.jsx            Entry
-│   │   ├── auth.jsx            Auth context (useAuth)
-│   │   ├── api.js              Session-aware fetch wrapper
-│   │   ├── chrome.jsx          PlatformHeader, AppHeader, CuratorHeader, ProcessStepper
-│   │   ├── i18n.js             zh + en string table
-│   │   ├── data.js             Sample data referenced by the form (PRODUCTS, FIELDS, LAYERS…)
-│   │   ├── styles.css          Design tokens + components
-│   │   ├── tweaks.jsx          Live-tweak panel (color, density, roundness, font)
-│   │   └── screens/
-│   │       ├── landing.jsx              /
-│   │       ├── portal-login.jsx         /supplier, /curator, /sales (when logged out)
-│   │       ├── supplier-home.jsx        /supplier (logged in)
-│   │       ├── onboard.jsx              register / upload / identify
-│   │       ├── form.jsx                 intake form + Copilot panel
-│   │       ├── other.jsx                confirm / thanks / queue / publish
-│   │       ├── workbench.jsx            curator workbench
-│   │       └── sales.jsx                catalog + RolePack detail
-│   ├── package.json
-│   └── vite.config.js          Proxies /api → http://localhost:3001
+├── functions/                     Cloudflare Pages Functions (the API)
+│   └── api/
+│       ├── _middleware.js         JWT auth gate, public-route allowlist
+│       ├── _helpers.js            JSON, cookies, JWT (HS256), PBKDF2, IDs
+│       ├── _fields-template.js    Default form field schema for new submissions
+│       ├── health.js              GET /api/health
+│       ├── auth/
+│       │   ├── register.js        POST   /api/auth/register
+│       │   ├── login.js           POST   /api/auth/login
+│       │   ├── logout.js          POST   /api/auth/logout
+│       │   └── me.js              GET    /api/auth/me
+│       ├── catalog/
+│       │   ├── index.js           GET    /api/catalog
+│       │   └── [id].js            GET    /api/catalog/:id
+│       ├── submissions/
+│       │   ├── index.js           GET, POST /api/submissions
+│       │   └── [id]/
+│       │       ├── index.js       GET    /api/submissions/:id
+│       │       ├── submit.js      POST   /api/submissions/:id/submit
+│       │       ├── fields.js      PATCH  /api/submissions/:id/fields  (bulk)
+│       │       ├── fields/[fid].js PATCH /api/submissions/:id/fields/:fid
+│       │       ├── files.js       GET, POST /api/submissions/:id/files (R2)
+│       │       └── copilot.js     GET, POST /api/submissions/:id/copilot
+│       └── curator/submissions/[id]/
+│           ├── decision.js        POST   /api/curator/submissions/:id/decision
+│           └── publish.js         POST   /api/curator/submissions/:id/publish
 │
-├── server/                     Backend (Hono + node:sqlite)
-│   ├── src/
-│   │   ├── index.js            HTTP entry
-│   │   ├── db.js               Schema + connection
-│   │   ├── auth.js             bcrypt + sessions + middleware
-│   │   ├── seed.js             `npm run seed` — wipes DB, creates 2 preset accounts
-│   │   ├── lib/fields.js       Default field template
-│   │   └── routes/
-│   │       ├── auth.js         POST /register, /login, /logout · GET /me
-│   │       ├── submissions.js  CRUD + field updates + submit
-│   │       ├── curator.js      decision + publish
-│   │       ├── catalog.js      published RolePack catalog
-│   │       ├── copilot.js      Claude-powered field extraction
-│   │       └── files.js        multipart upload + storage
-│   └── package.json
+├── app/                           React frontend (Vite)
+│   ├── src/{App,api,auth,chrome,i18n,styles,...}.jsx
+│   └── src/screens/{landing,portal-login,supplier-home,onboard,form,other,workbench,sales}.jsx
 │
-└── handoff/                    Original Claude Design HTML/JSX prototype + spec
+├── schema.sql                     D1 schema
+├── seed.sql                       Preset accounts (curator + sales)
+├── wrangler.toml                  Prod Pages config (D1 + R2 bindings)
+├── wrangler.uat.toml              UAT Pages config (separate D1 + R2)
+├── scripts/
+│   ├── deploy-uat.sh              Atomic toml-swap deploy to rolemaster-uat.pages.dev
+│   └── deploy-prod.sh             Clean-tree deploy to rolemaster.pages.dev
+└── handoff/                       Original Claude Design HTML/JSX prototype (reference)
 ```
 
 ## Run locally
 
-Two terminals:
-
 ```bash
-# Terminal 1 — backend
-cd server
-npm install
-npm run seed         # one-time: wipes DB, creates the two preset accounts
-npm start            # listens on :3001
+# 1. Install everything
+npm run install:all
 
-# Terminal 2 — frontend
-cd app
-npm install
-npm run dev          # opens :5173, proxies /api → :3001
+# 2. Apply schema + seed to LOCAL D1 (one-time, simulated by Miniflare)
+npm run schema:local
+npm run seed:local
+
+# 3. Set a JWT secret (and optionally Anthropic key) for local dev
+cat > .dev.vars <<EOF
+JWT_SECRET="local-dev-only-change-me"
+# ANTHROPIC_API_KEY="sk-ant-..."
+EOF
+
+# 4. Build the SPA once (so dist/ exists for wrangler to serve)
+npm run build
+
+# 5. Start both servers concurrently (Vite on 5173, wrangler on 8788; vite proxies /api)
+npm run dev
 ```
 
 Open `http://localhost:5173/`.
 
-### Preset accounts (password is `demo` for both)
+### Preset accounts (password: `demo`)
 
 | Role | Email |
 |---|---|
@@ -91,89 +100,110 @@ Open `http://localhost:5173/`.
 
 Suppliers self-register at `/supplier/register`.
 
-### Real Claude Copilot (optional)
+## Deploy to Cloudflare Pages
 
-Without an API key, the Copilot uses a keyword-based fallback so the demo still works. To use real Claude:
+This is a one-time setup. Subsequent deploys are a single command.
+
+### 1. Authenticate with Cloudflare
 
 ```bash
-# Terminal 1
-export ANTHROPIC_API_KEY=sk-ant-...
-npm start
+npx wrangler login
 ```
 
-The default model is `claude-sonnet-4-6`. Override with `COPILOT_MODEL=claude-opus-4-7` if you want the most capable.
+A browser opens — approve the OAuth grant.
+
+### 2. Create the D1 database
+
+```bash
+npx wrangler d1 create rolemaster-db
+```
+
+Output gives you a `database_id`. Paste it into [wrangler.toml](wrangler.toml) under `[[d1_databases]]` (replace `REPLACE_ME_AFTER_wrangler_d1_create`).
+
+Repeat for UAT if you want a separate environment:
+
+```bash
+npx wrangler d1 create rolemaster-db-uat
+# paste the new id into wrangler.uat.toml
+```
+
+### 3. Create the R2 bucket
+
+```bash
+npx wrangler r2 bucket create rolemaster-files
+# UAT (optional)
+npx wrangler r2 bucket create rolemaster-files-uat
+```
+
+### 4. Apply schema + seed to remote D1
+
+```bash
+npm run schema   # applies schema.sql to remote rolemaster-db
+npm run seed     # creates the curator + sales preset accounts
+```
+
+### 5. Create the Pages project
+
+```bash
+npx wrangler pages project create rolemaster --production-branch=main
+# UAT (optional)
+npx wrangler pages project create rolemaster-uat --production-branch=main
+```
+
+### 6. Set secrets
+
+```bash
+# Generate a strong random JWT secret
+npx wrangler pages secret put JWT_SECRET --project-name=rolemaster
+# (paste a 32+ char random string)
+
+# Optional — enables real Claude Copilot
+npx wrangler pages secret put ANTHROPIC_API_KEY --project-name=rolemaster
+```
+
+### 7. Deploy
+
+```bash
+npm run deploy:prod      # builds SPA, deploys to rolemaster.pages.dev
+# or
+npm run deploy:uat       # to rolemaster-uat.pages.dev (uses the toml-swap pattern)
+```
+
+Live at `https://rolemaster.pages.dev` (and `https://rolemaster-uat.pages.dev` for UAT).
+
+### Per-deploy commands after the one-time setup
+
+```bash
+git push                    # sync code
+npm run deploy:prod         # ship to prod
+npm run deploy:uat          # ship to UAT
+```
+
+## Branch model (mirrors aselo)
+
+| Branch | Purpose |
+|---|---|
+| `main` | Production. Deploy from here. |
+| `uat` | UAT / pre-prod testing. |
+| `feature/*` | New features. Merge into `uat` first. |
+| `hotfix/*` | Urgent prod fixes. Branch from `main`. |
+
+Default: ship features to UAT first; promote to `main` only after the user signs off.
 
 ## End-to-end flow
 
-1. Visit `/` → pick the supplier tile
-2. Register a new supplier account at `/supplier/register`
+1. Visit `/` → click the supplier tile
+2. Register a new supplier at `/supplier/register`
 3. Land on `/supplier` (empty dashboard) → "+ New submission"
-4. Upload a file (anything works — parsing is mocked) → identify products → form auto-creates a real submission with a unique ID
+4. Upload a file (R2) → identify products → form auto-creates a real submission
 5. Type freeform context to the Copilot — it extracts fields and persists them
-6. Submit → confirm → thanks. Submission status flips from `draft` → `new` in the DB.
+6. Submit → confirm → thanks. Submission status `draft` → `new`.
 7. Sign out, sign in as `grace@rolemaster.io` at `/curator`
-8. Queue shows the new submission. Click into the workbench, tick all checks, click "Approve and publish"
-9. A RolePack is created and the submission is marked `published`
+8. Queue shows the new submission. Click in, tick checks, click "Approve and publish"
+9. A RolePack is created in D1; submission marked `published`
 10. Sign out, sign in as `sales@rolemaster.io` at `/sales`
-11. Catalog now shows the published RolePack
-
-## Deploy
-
-In production the **server** also serves the **built SPA** from the same port, so a single deploy covers both. Two recommended paths:
-
-### Fly.io (recommended — true persistence on a free volume)
-
-```bash
-# one-time setup
-brew install flyctl                       # or: https://fly.io/docs/hands-on/install-flyctl/
-fly auth login
-
-# from the repo root
-fly launch --no-deploy                    # picks a unique app name; rewrites fly.toml
-fly volumes create rm_data --size 1 --region iad
-fly volumes create rm_uploads --size 1 --region iad
-fly secrets set ANTHROPIC_API_KEY=sk-ant-...   # optional — for real Copilot
-fly deploy
-```
-
-Your app is live at `https://<app-name>.fly.dev`. SQLite and uploads survive deploys via the mounted volumes.
-
-### Render (one-click from the GitHub repo)
-
-1. https://dashboard.render.com/blueprints → **New Blueprint Instance** → connect this repo
-2. Render reads [render.yaml](render.yaml) and provisions a Docker service
-3. In the service's Environment tab, set `ANTHROPIC_API_KEY` (optional)
-4. Hit Deploy
-
-Free tier note: persistent disks require a paid plan. On the free plan the SQLite DB resets on every redeploy.
-
-### Self-hosted Docker
-
-```bash
-docker build -t rolemaster .
-docker run -d -p 3001:3001 \
-  -v rm-data:/data \
-  -v rm-uploads:/uploads \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
-  rolemaster
-```
-
-### Production env vars
-
-| Var | Purpose |
-|---|---|
-| `PORT` | Listen port (default `3001`) |
-| `NODE_ENV` | Set to `production` to enable `Secure` cookies |
-| `DATA_DIR` | Where to put `rolemaster.db` (default `server/data`) |
-| `UPLOAD_DIR` | Where to write file uploads (default `server/uploads`) |
-| `CORS_ORIGIN` | Restrict CORS (default reflects request origin — fine for same-origin deploys) |
-| `ANTHROPIC_API_KEY` | Enables the real Claude Copilot. Without this, falls back to keyword extraction. |
-| `COPILOT_MODEL` | Override the model (default `claude-sonnet-4-6`) |
-
-## Design source
-
-The original HTML/JSX prototype from Claude Design (claude.ai/design) is preserved under [handoff/](handoff/) for reference. The production app reimplements it in React + a real backend.
+11. Catalog now shows the new RolePack
 
 ## License
 
-Private — no license granted.
+Private.
