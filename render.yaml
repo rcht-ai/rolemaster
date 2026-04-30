@@ -1,14 +1,17 @@
-# Render Blueprint — one-click deploy.
+# Render Blueprint — one-click deploy from the GitHub UI.
 #
-# To use:
-#   1. Push this repo to GitHub (already done)
-#   2. Go to https://dashboard.render.com/blueprints → New Blueprint Instance
-#   3. Connect your GitHub repo → Render reads this file and provisions everything
-#   4. Optional: in the Render UI, set ANTHROPIC_API_KEY for real Copilot
+# How to use:
+#   1. Push this repo to GitHub (already done).
+#   2. Sign in at https://dashboard.render.com.
+#   3. Click "New" → "Blueprint" → connect this repo.
+#   4. Render reads this file and provisions everything.
+#   5. (Optional) In the service's Environment tab, set ANTHROPIC_API_KEY
+#      for real Claude Copilot — leave unset to use the keyword fallback.
 #
-# Note: persistent disks are a paid feature on Render. Without one the SQLite DB
-# resets every redeploy. For free-tier demos that's fine; for real persistence,
-# upgrade the service to Starter ($7/mo) and the disk block below activates.
+# Free tier note: persistent disks require a paid plan ($7/mo). On free, the
+# SQLite DB and uploaded files reset every time the service redeploys or sleeps.
+# That's fine for a demo. To add persistence later, change `plan: free` to
+# `plan: starter` and uncomment the `disk:` block below.
 
 services:
   - type: web
@@ -20,13 +23,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
-        value: /data
-      - key: UPLOAD_DIR
-        value: /uploads
       - key: ANTHROPIC_API_KEY
-        sync: false  # Set this in the Render UI (don't commit secrets)
-    disk:
-      name: rolemaster-data
-      mountPath: /data
-      sizeGB: 1
+        sync: false   # Set in the Render UI — never commit secrets
+    # disk:           # Uncomment with `plan: starter` for persistent SQLite + uploads
+    #   name: rolemaster-data
+    #   mountPath: /data
+    #   sizeGB: 1
