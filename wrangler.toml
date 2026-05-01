@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "rolemaster-db"
-database_id = "REPLACE_ME_AFTER_wrangler_d1_create"
+database_id = "aeb08d61-8d79-43e7-8d1c-9aed581e1c62"
 
 [[r2_buckets]]
 binding = "R2"

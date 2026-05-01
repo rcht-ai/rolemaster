@@ -13,8 +13,8 @@
     "seed": "wrangler d1 execute rolemaster-db --file=seed.sql --remote",
     "schema:local": "wrangler d1 execute rolemaster-db --file=schema.sql --local",
     "seed:local": "wrangler d1 execute rolemaster-db --file=seed.sql --local",
-    "deploy:uat": "bash scripts/deploy-uat.sh",
-    "deploy:prod": "bash scripts/deploy-prod.sh"
+    "deploy:uat": "node scripts/deploy.mjs uat",
+    "deploy:prod": "node scripts/deploy.mjs prod"
   },
   "devDependencies": {
     "concurrently": "^9.0.1",
