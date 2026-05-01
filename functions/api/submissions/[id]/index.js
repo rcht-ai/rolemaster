@@ -1,6 +1,38 @@
-// GET /api/submissions/:id — full submission + fields + audit log.
+// GET   /api/submissions/:id — full submission + fields + audit log.
+// PATCH /api/submissions/:id — update product info (name, subtitle).
 
 import { json, rowToField } from '../../_helpers.js';
+
+export async function onRequestPatch(context) {
+  const u = context.data.user;
+  const id = context.params.id;
+
+  let body;
+  try { body = await context.request.json(); } catch { body = {}; }
+
+  const sub = await context.env.DB.prepare(
+    'SELECT supplier_id FROM submissions WHERE id = ?'
+  ).bind(id).first();
+  if (!sub) return json({ error: 'not_found' }, 404);
+  if (u.role !== 'supplier' || sub.supplier_id !== u.supplier_id) return json({ error: 'forbidden' }, 403);
+
+  const sets = [];
+  const vals = [];
+  if (typeof body.productId === 'string')   { sets.push('product_id = ?');           vals.push(body.productId); }
+  if (typeof body.productName === 'string') { sets.push('product_name = ?');         vals.push(body.productName); }
+  if (body.productSubtitle && typeof body.productSubtitle === 'object') {
+    sets.push('product_subtitle_zh = ?'); vals.push(body.productSubtitle.zh ?? '');
+    sets.push('product_subtitle_en = ?'); vals.push(body.productSubtitle.en ?? '');
+  }
+  if (sets.length === 0) return json({ ok: true, noop: true });
+
+  sets.push("updated_at = datetime('now')");
+  await context.env.DB.prepare(
+    `UPDATE submissions SET ${sets.join(', ')} WHERE id = ?`
+  ).bind(...vals, id).run();
+
+  return json({ ok: true });
+}
 
 export async function onRequestGet(context) {
   const u = context.data.user;

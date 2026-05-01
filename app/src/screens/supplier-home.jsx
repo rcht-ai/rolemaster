@@ -13,6 +13,21 @@ export function ScreenSupplierHome({ lang, setLang, onLogout }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  // Create a draft submission, then route the supplier into the upload flow with the new id.
+  const startNew = async () => {
+    if (creating) return;
+    try {
+      setCreating(true); setErr('');
+      const res = await subs.create({});  // empty body — backend uses placeholders
+      navigate(`/supplier/new/${res.id}/upload`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setCreating(false);
+    }
+  };
 
   useEffect(() => {
     let abort = false;
@@ -63,7 +78,7 @@ export function ScreenSupplierHome({ lang, setLang, onLogout }) {
             </p>
           </div>
           <button className="btn btn-primary"
-            onClick={() => navigate('/supplier/new/upload')}
+            onClick={startNew} disabled={creating}
             style={{ padding: '12px 18px', fontWeight: 600 }}>
             + {lang === 'zh' ? '新提交' : 'New submission'}
           </button>
@@ -93,7 +108,7 @@ export function ScreenSupplierHome({ lang, setLang, onLogout }) {
                 : 'Upload your product materials and Copilot will prefill most fields. Five minutes per submission is typical.'}
             </p>
             <button className="btn btn-primary"
-              onClick={() => navigate('/supplier/new/upload')}
+              onClick={startNew} disabled={creating}
               style={{ padding: '10px 18px', fontWeight: 600 }}>
               {lang === 'zh' ? '开始第一份提交 →' : 'Start your first submission →'}
             </button>

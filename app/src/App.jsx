@@ -46,8 +46,8 @@ function shade(hex, amt) {
 function routeMeta(pathname) {
   // Supplier intake flow
   if (pathname === '/supplier/register')              return { platform: 'supplier', screen: 'register', stepper: true, requiresAuth: false };
-  if (pathname.startsWith('/supplier/new/upload'))    return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
-  if (pathname.startsWith('/supplier/new/identify'))  return { platform: 'supplier', screen: 'multi',    stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/new\/[^/]+\/upload$/.test(pathname))   return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/new\/[^/]+\/identify$/.test(pathname)) return { platform: 'supplier', screen: 'multi',    stepper: true, requiresAuth: 'supplier' };
   if (pathname.startsWith('/supplier/form/'))         return { platform: 'supplier', screen: 'form',     stepper: true, requiresAuth: 'supplier' };
   if (pathname.startsWith('/supplier/confirm/'))      return { platform: 'supplier', screen: 'confirm',  stepper: true, requiresAuth: 'supplier' };
   if (pathname.startsWith('/supplier/thanks/'))       return { platform: 'supplier', screen: 'thanks',   stepper: true, requiresAuth: 'supplier' };
@@ -144,8 +144,8 @@ function AppShell() {
           {/* Supplier portal */}
           <Route path="/supplier" element={<SupplierLanding lang={lang} setLang={setLang} />} />
           <Route path="/supplier/register" element={<RegisterRoute lang={lang} setLang={setLang} />} />
-          <Route path="/supplier/new/upload" element={<RoleGate role="supplier" portal="/supplier"><UploadRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/new/identify" element={<RoleGate role="supplier" portal="/supplier"><MultiRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/new/:id/upload" element={<RoleGate role="supplier" portal="/supplier"><UploadRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/new/:id/identify" element={<RoleGate role="supplier" portal="/supplier"><MultiRoute lang={lang} setLang={setLang} /></RoleGate>} />
           <Route path="/supplier/form/:id" element={<RoleGate role="supplier" portal="/supplier"><FormRoute lang={lang} setLang={setLang} /></RoleGate>} />
           <Route path="/supplier/confirm/:id" element={<RoleGate role="supplier" portal="/supplier"><ConfirmRoute lang={lang} setLang={setLang} /></RoleGate>} />
           <Route path="/supplier/thanks/:id" element={<RoleGate role="supplier" portal="/supplier"><ThanksRoute lang={lang} setLang={setLang} /></RoleGate>} />
@@ -290,17 +290,19 @@ function RegisterRoute({ lang, setLang }) {
 
 function UploadRoute({ lang, setLang }) {
   const navigate = useNavigate();
+  const { id } = useParams();
   const { logout } = useAuth();
-  return <ScreenOnboard lang={lang} setLang={setLang}
-    goNext={() => navigate('/supplier/new/identify')}
+  return <ScreenOnboard lang={lang} setLang={setLang} submissionId={id}
+    goNext={() => navigate(`/supplier/new/${id}/identify`)}
     onLogout={async () => { await logout(); navigate('/'); }} />;
 }
 
 function MultiRoute({ lang, setLang }) {
   const navigate = useNavigate();
+  const { id } = useParams();
   const { logout } = useAuth();
-  return <ScreenMulti lang={lang} setLang={setLang}
-    goNext={(id) => navigate(`/supplier/form/${id}`)}
+  return <ScreenMulti lang={lang} setLang={setLang} submissionId={id}
+    goNext={() => navigate(`/supplier/form/${id}`)}
     onLogout={async () => { await logout(); navigate('/'); }} />;
 }
 

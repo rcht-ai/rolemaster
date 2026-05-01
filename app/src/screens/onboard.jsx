@@ -156,35 +156,33 @@ export function ScreenRegister({ lang, setLang, goNext, onLogout }) {
   );
 }
 
+// Multi-file upload screen. Files persist to R2 immediately on drop/select.
+// User can keep adding files, then click "Continue" to advance.
 export function ScreenOnboard({ lang, setLang, goNext, submissionId, onLogout }) {
   const { supplier } = useAuth();
-  const [parsing, setParsing] = useState(false);
+  const [files, setFiles] = useState([]);
   const [hover, setHover] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
-  // Drives the fake "AI parsing" progress UI after upload completes.
+  // Hydrate the list from any prior uploads to this submission.
   useEffect(() => {
-    if (!parsing) return;
-    let p = 0;
-    const id = setInterval(() => {
-      p += 6 + Math.random() * 12;
-      if (p >= 100) { p = 100; clearInterval(id); setTimeout(() => goNext(), 400); }
-      setProgress(p);
-    }, 180);
-    return () => clearInterval(id);
-  }, [parsing]);
+    if (!submissionId) return;
+    subs.listFiles(submissionId).then(({ files }) => setFiles(files || [])).catch(() => {});
+  }, [submissionId]);
 
-  const upload = async (files) => {
-    if (!files?.length) { setParsing(true); return; }
-    if (!submissionId) { setParsing(true); return; } // Skip API call until submission exists; the multi screen creates it.
+  const upload = async (incoming) => {
+    if (!incoming?.length || !submissionId) return;
     try {
+      setBusy(true); setErr('');
       const fd = new FormData();
-      for (const f of files) fd.append('files', f);
-      await subs.uploadFile(submissionId, fd);
-      setParsing(true);
+      for (const f of incoming) fd.append('files', f);
+      const res = await subs.uploadFile(submissionId, fd);
+      setFiles(prev => [...prev, ...(res.files || [])]);
     } catch (e) {
       setErr(e.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -193,6 +191,9 @@ export function ScreenOnboard({ lang, setLang, goNext, submissionId, onLogout })
     setHover(false);
     upload(Array.from(e.dataTransfer?.files || []));
   };
+
+  const fmt = (n) => n < 1024 ? `${n} B` : n < 1024*1024 ? `${(n/1024).toFixed(1)} KB` : `${(n/1024/1024).toFixed(1)} MB`;
+  const KIND_COLOR = { pdf: '#DC2626', ppt: '#EA580C', doc: '#0F766E', voice: '#7C3AED', url: '#2563EB' };
 
   return (
     <div className="screen-anim platform-supplier" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -207,100 +208,145 @@ export function ScreenOnboard({ lang, setLang, goNext, submissionId, onLogout })
             {t('s2_sub', lang)}
           </p>
 
-          {!parsing ? (
-            <>
-              <label
-                onDragOver={(e) => { e.preventDefault(); setHover(true); }}
-                onDragLeave={() => setHover(false)}
-                onDrop={onDrop}
-                style={{
-                  border: `2px dashed ${hover ? 'var(--navy)' : 'var(--line)'}`,
-                  borderRadius: 16,
-                  background: hover ? 'rgba(31,58,95,0.04)' : 'white',
-                  padding: '56px 32px',
-                  cursor: 'pointer',
-                  transition: 'all 0.18s',
-                  display: 'block',
-                }}>
-                <input type="file" multiple style={{ display: 'none' }}
-                  onChange={(e) => upload(Array.from(e.target.files || []))} />
-                <div style={{
-                  width: 56, height: 56, borderRadius: 14,
-                  background: 'var(--st-ai-bg)', color: 'var(--st-ai-ink)',
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14
-                }}>
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
-                  </svg>
-                </div>
-                <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--navy-ink)', marginBottom: 6 }}>
-                  {t('s2_drop', lang)}
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                  {t('s2_drop_sub', lang)}
-                </div>
-              </label>
-
-              <div style={{ marginTop: 24, fontSize: 13, color: 'var(--ink-2)' }}>{t('s2_or', lang)}</div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-                <button className="btn btn-secondary" onClick={() => setParsing(true)}>+ {t('s2_url', lang)}</button>
-                <button className="btn btn-secondary" onClick={() => setParsing(true)}>+ {t('s2_text', lang)}</button>
-                <button className="btn btn-secondary" onClick={() => setParsing(true)}>+ {t('s2_voice', lang)}</button>
-              </div>
-              <div style={{ marginTop: 32, paddingTop: 24, borderTop: '1px solid var(--line)', fontSize: 13, color: 'var(--ink-2)' }}>
-                {t('s2_no_materials', lang)}{' '}
-                <button onClick={() => setParsing(true)} style={{ color: 'var(--navy-2)', textDecoration: 'underline', padding: 0 }}>
-                  {t('s2_qa_instead', lang)}
-                </button>
-              </div>
-              {err && <div style={{ marginTop: 16, color: 'var(--st-empty-ink)', fontSize: 13 }}>{err}</div>}
-            </>
-          ) : (
-            <div style={{
-              padding: 40, background: 'white', borderRadius: 16,
-              border: '1px solid var(--line)', maxWidth: 480, margin: '0 auto'
+          <label
+            onDragOver={(e) => { e.preventDefault(); setHover(true); }}
+            onDragLeave={() => setHover(false)}
+            onDrop={onDrop}
+            style={{
+              border: `2px dashed ${hover ? 'var(--plat-supplier)' : 'var(--line)'}`,
+              borderRadius: 16,
+              background: hover ? 'var(--plat-supplier-tint)' : 'white',
+              padding: files.length > 0 ? '32px' : '56px 32px',
+              cursor: 'pointer',
+              transition: 'all 0.18s',
+              display: 'block',
             }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--navy-ink)', marginBottom: 6 }}>
-                {t('s2_parsing', lang)}
+            <input type="file" multiple style={{ display: 'none' }}
+              onChange={(e) => { upload(Array.from(e.target.files || [])); e.target.value = ''; }} />
+            <div style={{
+              width: 56, height: 56, borderRadius: 14,
+              background: 'var(--st-ai-bg)', color: 'var(--st-ai-ink)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14
+            }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--navy-ink)', marginBottom: 6 }}>
+              {files.length === 0
+                ? t('s2_drop', lang)
+                : (lang === 'zh' ? '继续添加更多材料 →' : 'Add more materials →')}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+              {t('s2_drop_sub', lang)}
+            </div>
+            {busy && <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}>{lang === 'zh' ? '上传中…' : 'Uploading…'}</div>}
+          </label>
+
+          {/* Uploaded files list */}
+          {files.length > 0 && (
+            <div style={{
+              marginTop: 24, padding: 16,
+              background: 'white', border: '1px solid var(--line)', borderRadius: 12,
+              textAlign: 'left',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {lang === 'zh' ? '已上传' : 'Uploaded'} ({files.length})
               </div>
-              <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 20 }}>
-                {t('s2_parsing_sub', lang)}
-              </div>
-              <div style={{ height: 6, background: 'var(--line-2)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', width: `${progress}%`,
-                  background: 'linear-gradient(90deg, var(--navy-2), var(--gold))',
-                  transition: 'width 0.18s ease-out'
-                }} />
+              <div style={{ display: 'grid', gap: 6 }}>
+                {files.map((f) => (
+                  <div key={f.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 10px', background: 'var(--bg)',
+                    border: '1px solid var(--line-2)', borderRadius: 6, fontSize: 13,
+                  }}>
+                    <span style={{
+                      fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700,
+                      padding: '2px 6px', borderRadius: 3,
+                      background: 'white', border: '1px solid var(--line)',
+                      color: KIND_COLOR[f.kind] ?? '#666',
+                    }}>{(f.kind || 'doc').toUpperCase()}</span>
+                    <span style={{ flex: 1, color: 'var(--ink)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                      {f.filename}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{fmt(f.size)}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
+
+          {err && <div style={{ marginTop: 16, color: 'var(--st-empty-ink)', fontSize: 13 }}>⚠ {err}</div>}
+
+          {/* Continue button — always visible. Skipping is fine; AI prefill just won't fire. */}
+          <div style={{ marginTop: 28, display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button className="btn btn-ghost" onClick={goNext}>
+              {lang === 'zh' ? '跳过' : 'Skip'}
+            </button>
+            <button className="btn btn-primary" onClick={goNext}
+              style={{ padding: '12px 24px', fontWeight: 600 }}>
+              {files.length > 0
+                ? (lang === 'zh' ? `分析这 ${files.length} 份材料 →` : `Analyse ${files.length} file${files.length === 1 ? '' : 's'} →`)
+                : (lang === 'zh' ? '继续' : 'Continue →')}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-export function ScreenMulti({ lang, setLang, goNext, onLogout }) {
+// "Identify" screen — runs the real AI prefill against the uploaded files,
+// shows progress, then advances to the form which renders the prefilled fields.
+// User can also rename the product (the AI suggests one if it could).
+export function ScreenMulti({ lang, setLang, goNext, submissionId, onLogout }) {
   const { supplier } = useAuth();
-  const [checked, setChecked] = useState(PRODUCTS.map(() => true));
-  const [mode, setMode] = useState('separate');
+  const [phase, setPhase] = useState('idle');     // idle → running → done | empty | error
+  const [progress, setProgress] = useState(0);
+  const [summary, setSummary] = useState('');
+  const [updated, setUpdated] = useState(0);
+  const [productName, setProductName] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+
+  // Kick off the prefill on mount.
+  useEffect(() => {
+    if (!submissionId) return;
+    let alive = true;
+    let p = 0;
+    const tick = setInterval(() => { p = Math.min(95, p + 4 + Math.random() * 6); if (alive) setProgress(p); }, 220);
+    setPhase('running');
+
+    subs.prefill(submissionId).then((res) => {
+      if (!alive) return;
+      clearInterval(tick);
+      setProgress(100);
+      if (res.ok) {
+        setPhase('done');
+        setSummary(res.summary || '');
+        setUpdated(res.updated || 0);
+      } else {
+        setPhase(res.reason === 'no_pdf_files' ? 'empty' : 'empty');
+      }
+    }).catch((e) => {
+      if (!alive) return;
+      clearInterval(tick);
+      setProgress(100);
+      setPhase('error');
+      setErr(e.message);
+    });
+    return () => { alive = false; clearInterval(tick); };
+  }, [submissionId]);
 
   const continueFlow = async () => {
     setBusy(true); setErr('');
     try {
-      // Pick the first checked product as the active one (TMX is preselected).
-      const active = PRODUCTS.find((p, i) => checked[i] && p.id === 'TMX') || PRODUCTS.find((_, i) => checked[i]);
-      const created = await subs.create({
-        productId: active.id,
-        productName: active.name,
-        productSubtitle: active.subtitle,
-      });
-      goNext(created.id);
+      if (productName.trim()) {
+        await subs.patch(submissionId, { productName: productName.trim() });
+      }
+      goNext();
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -314,72 +360,81 @@ export function ScreenMulti({ lang, setLang, goNext, onLogout }) {
         supplierName={supplier?.short_name ?? supplier?.name} />
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px 80px' }}>
         <div style={{ maxWidth: 600, width: '100%', background: 'white', border: '1px solid var(--line)', borderRadius: 16, padding: 36 }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            fontSize: 11, fontWeight: 600, color: 'var(--st-ai-ink)',
-            background: 'var(--st-ai-bg)', padding: '4px 10px', borderRadius: 999, marginBottom: 14
-          }}>
-            <span>✦</span> {lang === 'zh' ? 'AI 已分析完成' : 'AI analysis complete'}
-          </div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--navy-ink)', margin: '0 0 22px', letterSpacing: '-0.01em' }}>
-            {t('s3_title', lang)}
-          </h2>
-
-          <div style={{ display: 'grid', gap: 8, marginBottom: 28 }}>
-            {PRODUCTS.map((p, i) => (
-              <label key={p.id} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
-                border: '1px solid var(--line)', borderRadius: 10,
-                background: checked[i] ? 'rgba(46,90,138,0.04)' : 'white',
-                cursor: 'pointer', transition: 'background 0.15s'
+          {phase === 'running' && (
+            <>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                fontSize: 11, fontWeight: 600, color: 'var(--cop-border)',
+                background: 'var(--cop-bg)', padding: '4px 10px', borderRadius: 999, marginBottom: 14
               }}>
-                <input type="checkbox" checked={checked[i]}
-                  onChange={(e) => { const next = [...checked]; next[i] = e.target.checked; setChecked(next); }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: 'var(--navy-ink)' }}>
-                    {p.name}
-                    <span style={{ fontWeight: 400, color: 'var(--ink-2)', marginLeft: 8, fontSize: 13 }}>
-                      — {p.subtitle[lang]}
-                    </span>
-                  </div>
-                </div>
-                <span style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>
-                  {Math.round(75 + ((i * 7) % 20))}% {lang === 'zh' ? '置信度' : 'conf.'}
-                </span>
-              </label>
-            ))}
-          </div>
+                <span>✦</span> {lang === 'zh' ? 'Copilot 正在分析' : 'Copilot is analysing'}
+              </div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--navy-ink)', margin: '0 0 8px', letterSpacing: '-0.01em' }}>
+                {lang === 'zh' ? '正在阅读你上传的材料…' : 'Reading your materials…'}
+              </h2>
+              <p style={{ fontSize: 13, color: 'var(--ink-2)', margin: '0 0 24px' }}>
+                {lang === 'zh' ? 'Claude 正在从 PDF 里提取产品信息,大约 20 秒。' : 'Claude is extracting product info from your PDFs — about 20 seconds.'}
+              </p>
+              <div style={{ height: 6, background: 'var(--line-2)', borderRadius: 3, overflow: 'hidden', marginBottom: 18 }}>
+                <div style={{
+                  height: '100%', width: `${progress}%`,
+                  background: 'linear-gradient(90deg, var(--cop-border), var(--plat-supplier))',
+                  transition: 'width 0.22s ease-out',
+                }} />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>
+                {Math.round(progress)}%
+              </div>
+            </>
+          )}
 
-          <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 12, fontWeight: 500 }}>
-            {lang === 'zh' ? '如何处理:' : 'How would you like to handle them:'}
-          </div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {[
-              ['separate', 's3_setup_all', 's3_recommend'],
-              ['combine', 's3_combine', null],
-              ['focus_one', 's3_focus_one', null],
-            ].map(([val, key, recKey]) => (
-              <label key={val} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                border: `1px solid ${mode === val ? 'var(--navy-2)' : 'var(--line)'}`, borderRadius: 10,
-                background: mode === val ? 'rgba(46,90,138,0.04)' : 'white',
-                cursor: 'pointer'
+          {(phase === 'done' || phase === 'empty' || phase === 'error') && (
+            <>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                fontSize: 11, fontWeight: 600,
+                color: phase === 'done' ? 'var(--st-fill-ink)' : 'var(--ink-3)',
+                background: phase === 'done' ? 'var(--st-fill-bg)' : 'var(--bg-2)',
+                padding: '4px 10px', borderRadius: 999, marginBottom: 14
               }}>
-                <input type="radio" checked={mode === val} onChange={() => setMode(val)} />
-                <span style={{ flex: 1 }}>
-                  <span style={{ color: 'var(--ink)' }}>{t(key, lang)}</span>
-                  {recKey && <span style={{ color: 'var(--ink-3)', marginLeft: 6, fontSize: 12 }}>{t(recKey, lang)}</span>}
-                </span>
-              </label>
-            ))}
-          </div>
+                <span>{phase === 'done' ? '✓' : '○'}</span>{' '}
+                {phase === 'done'
+                  ? (lang === 'zh' ? `AI 已预填 ${updated} 个字段` : `AI prefilled ${updated} field${updated === 1 ? '' : 's'}`)
+                  : (lang === 'zh' ? '未做 AI 预填' : 'No AI prefill')}
+              </div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--navy-ink)', margin: '0 0 8px', letterSpacing: '-0.01em' }}>
+                {lang === 'zh' ? '请确认产品名称' : 'Confirm the product name'}
+              </h2>
+              {summary && (
+                <p style={{ fontSize: 13, color: 'var(--ink-2)', margin: '0 0 18px', lineHeight: 1.55, fontStyle: 'italic' }}>
+                  {summary}
+                </p>
+              )}
+              {phase === 'empty' && (
+                <p style={{ fontSize: 12, color: 'var(--ink-3)', margin: '0 0 18px' }}>
+                  {lang === 'zh' ? '没有可解析的 PDF。你可以直接在表单里手动填写,或返回上一步上传。' : 'No PDFs to parse. You can fill the form manually or go back to upload.'}
+                </p>
+              )}
+              {phase === 'error' && (
+                <p style={{ fontSize: 12, color: 'var(--st-empty-ink)', margin: '0 0 18px' }}>⚠ {err}</p>
+              )}
 
-          {err && <div style={{ marginTop: 12, color: 'var(--st-empty-ink)', fontSize: 13 }}>{err}</div>}
+              <label className="field-label">{lang === 'zh' ? '产品名称' : 'Product name'}</label>
+              <input
+                className="text-input" value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                placeholder={lang === 'zh' ? '例如:TMX' : 'e.g. TMX'}
+                style={{ marginBottom: 18 }}
+              />
 
-          <button className="btn btn-primary" onClick={continueFlow} disabled={busy}
-            style={{ width: '100%', marginTop: 28, padding: '12px 18px' }}>
-            {busy ? '…' : t('s3_continue', lang)}
-          </button>
+              {err && <div style={{ marginTop: 12, color: 'var(--st-empty-ink)', fontSize: 13 }}>⚠ {err}</div>}
+
+              <button className="btn btn-primary" onClick={continueFlow} disabled={busy}
+                style={{ width: '100%', marginTop: 8, padding: '12px 18px' }}>
+                {busy ? '…' : (lang === 'zh' ? '查看预填结果 →' : 'Open the form →')}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
