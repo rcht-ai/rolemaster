@@ -16,7 +16,7 @@ import { ScreenV2RoleDetails } from './screens/v2/role-details.jsx';
 import { ScreenV2ServicePricing } from './screens/v2/service-pricing.jsx';
 import { ScreenV2Review } from './screens/v2/review.jsx';
 import { ScreenV2Done } from './screens/v2/done.jsx';
-import { ScreenV2CuratorInbox } from './screens/v2/curator-inbox.jsx';
+import { ScreenQueue } from './screens/other.jsx';
 import { ScreenV2CuratorReview } from './screens/v2/curator-review.jsx';
 import { ScreenV2SalesLibrary, ScreenV2SalesRolepack } from './screens/v2/sales-library.jsx';
 import { TweaksPanel, TweakSection, TweakColor, TweakRadio, TweakSelect, TweakToggle, useTweaks } from './tweaks.jsx';
@@ -271,17 +271,24 @@ function SupplierLanding({ lang, setLang }) {
 
 function CuratorLanding({ lang, setLang }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout, loading } = useAuth();
+  // Prototype preview mode: ?preview=1 renders the redesigned inbox with demo
+  // data even when the user isn't signed in, so the kanban / supplier-groups /
+  // team view can be reviewed without a working auth backend.
+  const previewMode = new URLSearchParams(location.search).get('preview') === '1';
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-3)' }}>…</div>;
-  if (!user) {
+  if (!user && !previewMode) {
     return <ScreenPortalLogin platform="curator" lang={lang} setLang={setLang}
       onSuccess={() => navigate('/curator')} />;
   }
-  if (user.role !== 'curator') {
+  if (user && user.role !== 'curator') {
     return <WrongRole expected="curator" actual={user.role} lang={lang} onLogout={async () => { await logout(); navigate('/'); }} />;
   }
-  return <ScreenV2CuratorInbox lang={lang} setLang={setLang}
-    onLogout={async () => { await logout(); navigate('/'); }} />;
+  return <ScreenQueue lang={lang} setLang={setLang}
+    curatorName={user?.name || 'Grace Ho'}
+    openSubmission={(id) => navigate(`/curator/intake/${id}`)}
+    onLogout={user ? async () => { await logout(); navigate('/'); } : () => navigate('/')} />;
 }
 
 function SalesLanding({ lang, setLang }) {
