@@ -55,7 +55,7 @@ export function ScreenV2Done({ lang, setLang, onLogout }) {
             ? <span className="v2-status-pill v2-status-pill--ok">✓ {lang === 'zh' ? '全部已发布' : 'All published'}</span>
             : <span className="v2-status-pill v2-status-pill--review">✦ {lang === 'zh' ? '审阅中' : 'In review'}</span>}
         </div>
-        <p className="v2-lede">
+        <p className="v2-lede" style={{ maxWidth: 'none' }}>
           {lang === 'zh'
             ? '已提交进入审阅,审阅团队会在 1-3 个工作日内联系你。如需修改请联系 hello@rolemaster.io。'
             : 'Submitted for review. The review team will contact you within 1-3 business days. To make edits, email hello@rolemaster.io.'}
@@ -73,37 +73,45 @@ export function ScreenV2Done({ lang, setLang, onLogout }) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'grid', gap: 10 }}>
             {rolepacks.map((rp, idx) => {
               const isPublished = rp.status === 'published';
               return (
-                <div key={rp.id} className="v2-input-card">
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                <div key={rp.id} className="v2-input-card" style={{ padding: '14px 18px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    {/* Code stack */}
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 56, gap: 1, flexShrink: 0 }}>
                       <span className="v2-code-label">{rp.rp_label}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--ink-3)', fontWeight: 500 }}>
+                      <span style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 500 }}>
                         {lang === 'zh' ? `岗位 ${idx + 1}` : `Role ${idx + 1}`}
                       </span>
                     </div>
-                    {isPublished
-                      ? <span className="v2-status-pill v2-status-pill--ok">✓ {lang === 'zh' ? '已发布' : 'Published'}</span>
-                      : <span className="v2-status-pill v2-status-pill--review">✦ {lang === 'zh' ? '审阅中' : 'In review'}</span>}
+                    {/* Name + inline small status pill + meta below */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--navy-ink)' }}>
+                          {(lang === 'zh' ? rp.name_zh : rp.name_en) || '—'}
+                        </span>
+                        {isPublished
+                          ? <span className="v2-status-pill v2-status-pill--ok" style={{ fontSize: 10, padding: '2px 7px' }}>✓ {lang === 'zh' ? '已发布' : 'Published'}</span>
+                          : <span className="v2-status-pill v2-status-pill--review" style={{ fontSize: 10, padding: '2px 7px' }}>✦ {lang === 'zh' ? '审阅中' : 'In review'}</span>}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>
+                        {isPublished
+                          ? (lang === 'zh' ? '已上架销售库' : 'Live in catalog')
+                          : (lang === 'zh' ? '已提交,等待审阅' : 'Submitted, awaiting review')}
+                      </div>
+                    </div>
+                    {/* View-full link on the right */}
+                    <button onClick={() => navigate(`/supplier/intake/${id}/role/${rp.id}/details`)}
+                      style={{
+                        fontSize: 12.5, color: 'var(--plat-supplier)', fontWeight: 600,
+                        background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                        whiteSpace: 'nowrap', flexShrink: 0,
+                      }}>
+                      {lang === 'zh' ? '查看完整 →' : 'View full →'}
+                    </button>
                   </div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--navy-ink)', marginBottom: 6 }}>
-                    {(lang === 'zh' ? rp.name_zh : rp.name_en) || '—'}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14 }}>
-                    {isPublished
-                      ? (lang === 'zh' ? '已上架销售库' : 'Live in catalog')
-                      : (lang === 'zh' ? '已提交,等待审阅' : 'Submitted, awaiting review')}
-                  </div>
-                  <button onClick={() => navigate(`/supplier/intake/${id}/role/${rp.id}/details`)}
-                    style={{
-                      fontSize: 13, color: 'var(--plat-supplier)', fontWeight: 600,
-                      background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
-                    }}>
-                    {lang === 'zh' ? '查看完整 →' : 'View full →'}
-                  </button>
                 </div>
               );
             })}
