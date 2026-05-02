@@ -11,8 +11,108 @@ function ScreenWorkbench({ lang, setLang, goNext, goBack }) {
   const [comments, setComments] = uS7("");
   const [expandedFAQ, setExpandedFAQ] = uS7(0);
 
+  // ─── Slice 1 (curator-portal redesign): briefing banner + phase indicator ───
+  const [briefingOpen, setBriefingOpen] = uS7(true);   // default expanded on first open
+  const [phase, setPhase] = uS7("review");              // review | discussion | finalize
+  const [callDate, setCallDate] = uS7("");
+  const [showCallModal, setShowCallModal] = uS7(false);
+  const [pendingCallDate, setPendingCallDate] = uS7("");
+  const [copiedToast, setCopiedToast] = uS7(false);
+
+  const PHASE_ORDER = ["review", "discussion", "finalize"];
+  const phaseIdx = PHASE_ORDER.indexOf(phase);
+
+  // Click-to-jump from briefing chips into form-area elements with [data-field-id].
+  // Falls back to flashing the chip itself when no anchor exists in this view.
+  const jumpToField = (fieldId, fallbackEl) => {
+    const target = document.querySelector(`[data-field-id="${fieldId}"]`);
+    if (target) {
+      // Find the nearest scrollable ancestor (curator-pane is overflow:auto).
+      let scroller = target.parentElement;
+      while (scroller && scroller !== document.body) {
+        const oy = getComputedStyle(scroller).overflowY;
+        if (oy === "auto" || oy === "scroll") break;
+        scroller = scroller.parentElement;
+      }
+      if (scroller && scroller !== document.body) {
+        const top = target.getBoundingClientRect().top
+                  - scroller.getBoundingClientRect().top
+                  + scroller.scrollTop - 24;
+        scroller.scrollTo({ top, behavior: "smooth" });
+      }
+      target.classList.remove("briefing-jump-flash");
+      void target.offsetWidth;
+      target.classList.add("briefing-jump-flash");
+      setTimeout(() => target.classList.remove("briefing-jump-flash"), 1700);
+    } else if (fallbackEl) {
+      fallbackEl.classList.remove("briefing-jump-flash");
+      void fallbackEl.offsetWidth;
+      fallbackEl.classList.add("briefing-jump-flash");
+      setTimeout(() => fallbackEl.classList.remove("briefing-jump-flash"), 1700);
+    }
+  };
+
+  const advancePhase = () => {
+    if (phase === "review") {
+      // Prompt for call date before entering Discussion.
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+      setPendingCallDate(callDate || `${yyyy}-${mm}-${dd}`);
+      setShowCallModal(true);
+    } else if (phase === "discussion") {
+      setPhase("finalize");
+    } else if (phase === "finalize") {
+      goNext();
+    }
+  };
+
+  const confirmCallDate = () => {
+    setCallDate(pendingCallDate);
+    setPhase("discussion");
+    setShowCallModal(false);
+  };
+
+  const copyAllQuestions = () => {
+    const qs = window.BRIEFING.questions.map((q, i) => `${i + 1}. ${q.q[lang]}`).join("\n");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(qs).then(() => {
+        setCopiedToast(true);
+        setTimeout(() => setCopiedToast(false), 1800);
+      });
+    } else {
+      setCopiedToast(true);
+      setTimeout(() => setCopiedToast(false), 1800);
+    }
+  };
+
+  // Keyboard: b toggles briefing, p advances phase. Inert when an input is focused.
+  uE7(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "b" || e.key === "B") {
+        setBriefingOpen(v => !v);
+      } else if (e.key === "p" || e.key === "P") {
+        advancePhase();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, callDate]);
+
   const allChecked = checks.every(Boolean);
   const cards = window.LAYERS[layerTab];
+
+  // Format the saved call date for display in the curator's locale.
+  const formatCallDate = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso + "T00:00:00");
+    if (lang === "zh") return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
 
   return (
     <div className="screen-anim platform-curator" style={{ minHeight: "100vh" }}>
@@ -44,9 +144,183 @@ function ScreenWorkbench({ lang, setLang, goNext, goBack }) {
         <span style={{ fontSize: 11, color: "var(--ink-3)", display: "flex", gap: 12 }}>
           <span><span className="kbd">a</span> {lang === "zh" ? "批准" : "approve"}</span>
           <span><span className="kbd">r</span> {lang === "zh" ? "请求修改" : "request"}</span>
-          <span><span className="kbd">⌘+↵</span> {lang === "zh" ? "发布" : "publish"}</span>
+          <span><span className="kbd">b</span> {lang === "zh" ? "简报" : "briefing"}</span>
+          <span><span className="kbd">p</span> {lang === "zh" ? "推进" : "phase"}</span>
         </span>
       </div>
+
+      {/* ───────── Phase indicator (Slice 1) ───────── */}
+      <div className="phase-indicator">
+        <span className="phase-label">{lang === "zh" ? "阶段" : "Phase"}</span>
+        {PHASE_ORDER.map((p, i) => {
+          const labelKey = p === "review" ? "s7_phase_review"
+                         : p === "discussion" ? "s7_phase_discussion"
+                         : "s7_phase_finalize";
+          const isDone = i < phaseIdx;
+          const isCurrent = i === phaseIdx;
+          const cls = isDone ? "done" : isCurrent ? "current" : "future";
+          const clickable = i <= phaseIdx;
+          return (
+            <React.Fragment key={p}>
+              {i > 0 && <span className={`phase-connector ${i <= phaseIdx ? "filled" : ""}`} />}
+              <span
+                className={`phase-step ${cls} ${clickable ? "clickable" : ""}`}
+                onClick={() => clickable && setPhase(p)}
+                title={clickable && !isCurrent ? (lang === "zh" ? "返回此阶段" : "Jump back to this phase") : ""}
+              >
+                <span className="pdot">{isDone ? "✓" : i + 1}</span>
+                <span>{window.t(labelKey, lang)}</span>
+                {p === "discussion" && callDate && (
+                  <span className="phase-call-chip" style={{ marginLeft: 4 }}>
+                    📞 {formatCallDate(callDate)}
+                  </span>
+                )}
+              </span>
+            </React.Fragment>
+          );
+        })}
+        <div className="phase-meta">
+          <span style={{ fontSize: 11 }}>
+            <span className="kbd">p</span> {window.t("s7_phase_kbd", lang)}
+          </span>
+          <button className="phase-advance-btn" onClick={advancePhase}>
+            {phase === "review"     ? window.t("s7_phase_review_done", lang)
+           : phase === "discussion" ? window.t("s7_phase_discussion_done", lang)
+                                    : window.t("s7_phase_finalize_done", lang)} →
+          </button>
+        </div>
+      </div>
+
+      {/* ───────── AI Briefing banner (Slice 1) ───────── */}
+      {!briefingOpen && (
+        <div
+          className="briefing-banner collapsed-only"
+          onClick={() => setBriefingOpen(true)}
+          role="button"
+          tabIndex={0}
+        >
+          <span style={{ color: "var(--cop-border)", fontWeight: 700 }}>✦</span>
+          <span style={{ flex: 1 }}>
+            {lang === "zh"
+              ? `简报 · ${window.BRIEFING.what.zh.length} 条要点 · ${window.BRIEFING.questions.length} 个建议提问`
+              : `Briefing · ${window.BRIEFING.what.en.length} bullets · ${window.BRIEFING.questions.length} suggested questions`}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
+            <span className="kbd">b</span> {window.t("s7_briefing_expand", lang)}
+          </span>
+        </div>
+      )}
+      {briefingOpen && (
+        <div className="briefing-banner expanded">
+          <div className="briefing-banner-head" onClick={() => setBriefingOpen(false)}>
+            <span className="chev">▶</span>
+            <span>{window.t("s7_briefing_title", lang)}</span>
+            <span style={{
+              fontSize: 11, fontWeight: 500, color: "var(--ink-3)",
+              padding: "2px 8px", borderRadius: 4, background: "var(--bg)"
+            }}>
+              {window.PRODUCTS.find(p => p.id === "TMX").name} · {window.SUPPLIER.name}
+            </span>
+            <span className="head-spacer" />
+            <button
+              className="copy-all"
+              onClick={(e) => { e.stopPropagation(); copyAllQuestions(); }}
+              title={window.t("s7_briefing_copy", lang)}
+            >
+              {copiedToast ? `✓ ${window.t("s7_briefing_copied", lang)}` : `⧉ ${window.t("s7_briefing_copy", lang)}`}
+            </button>
+            <button
+              className="resummarize"
+              onClick={(e) => { e.stopPropagation(); /* no-op stub for slice 1 */ }}
+              title={window.t("s7_briefing_resummarize", lang)}
+            >
+              {window.t("s7_briefing_resummarize", lang)}
+            </button>
+            <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
+              <span className="kbd">b</span>
+            </span>
+          </div>
+          <div className="briefing-banner-body">
+            {/* What this RolePack is — 3 bullets */}
+            <div className="briefing-section what">
+              <div className="briefing-section-head">{window.t("s7_briefing_what", lang)}</div>
+              <ul className="briefing-list">
+                {window.BRIEFING.what[lang].map((bullet, i) => (
+                  <li key={i}>{bullet}</li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Strong + Thin two-column inner grid */}
+            <div style={{ display: "grid", gap: 10 }}>
+              <div className="briefing-section strong">
+                <div className="briefing-section-head">{window.t("s7_briefing_strong", lang)}</div>
+                <div className="briefing-list">
+                  {window.BRIEFING.strong.map((s) => (
+                    <button
+                      key={s.fieldId}
+                      className="briefing-chip strong"
+                      onClick={(e) => jumpToField(s.fieldId, e.currentTarget)}
+                      title={window.t("s7_briefing_jump", lang)}
+                    >
+                      <span style={{ fontWeight: 600, color: "var(--st-fill-ink)" }}>✓</span>
+                      <span style={{ flex: 1 }}>{s.label[lang]}</span>
+                      <span className="chip-arrow">→</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="briefing-section thin">
+                <div className="briefing-section-head">{window.t("s7_briefing_thin", lang)}</div>
+                <div className="briefing-list">
+                  {window.BRIEFING.thin.map((t) => (
+                    <button
+                      key={t.fieldId}
+                      className="briefing-chip thin"
+                      onClick={(e) => jumpToField(t.fieldId, e.currentTarget)}
+                      title={window.t("s7_briefing_jump", lang)}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontWeight: 600 }}>{t.label[lang]}</span>
+                        <span className="chip-why">{t.why[lang]}</span>
+                      </div>
+                      <span className="chip-arrow">→</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Suggested questions */}
+            <div className="briefing-section" style={{ background: "white" }}>
+              <div className="briefing-section-head" style={{ color: "var(--cop-border)" }}>
+                {window.t("s7_briefing_questions", lang)}
+              </div>
+              <div className="briefing-list">
+                {window.BRIEFING.questions.map((q, i) => (
+                  <button
+                    key={i}
+                    className="briefing-chip"
+                    style={{ alignItems: "flex-start" }}
+                    onClick={(e) => jumpToField(q.fieldIds[0], e.currentTarget)}
+                    title={window.t("s7_briefing_jump", lang)}
+                  >
+                    <span style={{
+                      fontFamily: "var(--font-mono)", fontSize: 10,
+                      color: "var(--cop-border)", fontWeight: 700,
+                      paddingTop: 2, minWidth: 14
+                    }}>
+                      Q{i + 1}
+                    </span>
+                    <span className="chip-q">{q.q[lang]}</span>
+                    <span className="chip-arrow" style={{ paddingTop: 2 }}>→</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="curator-shell">
         {/* ───────── Left pane: source ───────── */}
@@ -161,9 +435,9 @@ function ScreenWorkbench({ lang, setLang, goNext, goBack }) {
                       {window.t("s7_supplier_said", lang)}
                     </div>
                     <div style={{ display: "grid", gap: 10 }}>
-                      <CompareItem label={lang === "zh" ? "目标用户" : "Target user"} value={lang === "zh" ? "AML 分析师" : "AML Analyst"} />
-                      <CompareItem label={lang === "zh" ? "主要痛点" : "Main pain"} value={lang === "zh" ? "误报率 40-60%,告警堆积" : "FP rate 40-60%, alerts pile up"} />
-                      <CompareItem label={lang === "zh" ? "关键能力" : "Key capability"} value={lang === "zh" ? "规则 + CNN/LSTM 双引擎" : "Rules + CNN/LSTM dual engine"} />
+                      <CompareItem fieldId="user_role"       label={lang === "zh" ? "目标用户" : "Target user"} value={lang === "zh" ? "AML 分析师" : "AML Analyst"} />
+                      <CompareItem fieldId="pain_main"       label={lang === "zh" ? "主要痛点" : "Main pain"} value={lang === "zh" ? "误报率 40-60%,告警堆积" : "FP rate 40-60%, alerts pile up"} />
+                      <CompareItem fieldId="do_capabilities" label={lang === "zh" ? "关键能力" : "Key capability"} value={lang === "zh" ? "规则 + CNN/LSTM 双引擎" : "Rules + CNN/LSTM dual engine"} />
                     </div>
                   </div>
                   <div style={{ padding: 12, background: "var(--st-ai-bg)" }}>
@@ -171,9 +445,9 @@ function ScreenWorkbench({ lang, setLang, goNext, goBack }) {
                       ✦ {window.t("s7_ai_extracted", lang)}
                     </div>
                     <div style={{ display: "grid", gap: 10 }}>
-                      <CompareItem path="whoUses.role" value={lang === "zh" ? "AML 分析师 (junior-mid)" : "AML Analyst (junior-mid)"} ai />
-                      <CompareItem path="problem.painMain" value={lang === "zh" ? "rule-fp-rate=40-60%; alert-backlog=high" : "rule-fp-rate=40-60%; alert-backlog=high"} ai />
-                      <CompareItem path="capabilities[CAP-01]" value={lang === "zh" ? "dual-mode-engine (rules+CNN/LSTM)" : "dual-mode-engine (rules+CNN/LSTM)"} ai />
+                      <CompareItem fieldId="user_role"        path="whoUses.role"           value={lang === "zh" ? "AML 分析师 (junior-mid)" : "AML Analyst (junior-mid)"} ai />
+                      <CompareItem fieldId="pain_main"        path="problem.painMain"       value={lang === "zh" ? "rule-fp-rate=40-60%; alert-backlog=high" : "rule-fp-rate=40-60%; alert-backlog=high"} ai />
+                      <CompareItem fieldId="do_capabilities"  path="capabilities[CAP-01]"   value={lang === "zh" ? "dual-mode-engine (rules+CNN/LSTM)" : "dual-mode-engine (rules+CNN/LSTM)"} ai />
                     </div>
                   </div>
                 </div>
@@ -467,6 +741,34 @@ function ScreenWorkbench({ lang, setLang, goNext, goBack }) {
           </div>
         </aside>
       </div>
+
+      {/* ───────── Call-date prompt (Slice 1) ───────── */}
+      {showCallModal && (
+        <div className="phase-modal-backdrop" onClick={() => setShowCallModal(false)}>
+          <div className="phase-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{window.t("s7_phase_call_prompt", lang)}</h3>
+            <div className="sub">{window.t("s7_phase_call_prompt_sub", lang)}</div>
+            <input
+              type="date"
+              value={pendingCallDate}
+              onChange={(e) => setPendingCallDate(e.target.value)}
+              autoFocus
+            />
+            <div className="actions">
+              <button className="btn btn-secondary" onClick={() => setShowCallModal(false)}>
+                {window.t("s7_phase_call_cancel", lang)}
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={confirmCallDate}
+                disabled={!pendingCallDate}
+              >
+                {window.t("s7_phase_call_set", lang)} →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -486,9 +788,9 @@ function SubHead({ num, title, caption, lang }) {
   );
 }
 
-function CompareItem({ label, value, path, ai }) {
+function CompareItem({ label, value, path, ai, fieldId }) {
   return (
-    <div>
+    <div data-field-id={fieldId || undefined} style={{ padding: 4, margin: -4, borderRadius: 6 }}>
       <div style={{
         fontSize: 10, color: ai ? "var(--st-ai-ink)" : "var(--ink-3)",
         fontFamily: ai ? "var(--font-mono)" : "inherit",

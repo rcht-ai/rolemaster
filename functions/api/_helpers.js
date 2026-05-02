@@ -135,6 +135,27 @@ export function shortId(prefix = '', n = 8) {
   return id;
 }
 
+// ── T5.6 — lightweight platform logging ───────────────────────────
+// Best-effort. Never throws — logging failure must not cascade.
+export async function logEvent(env, level, message, context = {}) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO platform_logs (id, level, message, context_json) VALUES (?, ?, ?, ?)`
+    ).bind(shortId('LOG-', 10), level, String(message).slice(0, 500), JSON.stringify(context).slice(0, 4000)).run();
+  } catch { /* swallow */ }
+}
+
+// ── T5.3 — in-app notifications ───────────────────────────────────
+// type examples: 'submission_approved', 'submission_revision', 'submission_published', 'comment'
+export async function notify(env, userId, type, payload = {}) {
+  if (!userId) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO notifications (id, user_id, type, payload_json) VALUES (?, ?, ?, ?)`
+    ).bind(shortId('NTF-', 10), userId, type, JSON.stringify(payload)).run();
+  } catch { /* swallow */ }
+}
+
 // ── Bilingual field row ↔ object mapping ─────────────────────────
 export function rowToField(row) {
   const value = (row.value_zh || row.value_en)
@@ -149,4 +170,129 @@ export function rowToField(row) {
   if (row.hint_zh || row.hint_en) out.hint = { zh: row.hint_zh, en: row.hint_en };
   if (row.optional) out.optional = true;
   return out;
+}
+
+// ── Sensitive-field sanitizer (T5.8) ───────────────────────────────
+// Strips cost_price (and the curator's private notes / source quotes)
+// before sending data to the wrong audience.
+//
+// Matrix:
+//   - sales:    no cost_price, no curator-private fields
+//   - supplier: no curator-private fields (own cost is fine — they entered it)
+//   - curator:  see everything
+//
+// `fields` is the {fieldId -> field} object returned by loadFields().
+// `atoms` is the array of layer_atom rows.
+const COST_FIELD_IDS = new Set(['price_cost']);
+const CURATOR_PRIVATE_FIELD_IDS = new Set([]); // reserved for future
+const ATOM_PRIVATE_KEYS = ['source_quote']; // curator-internal; never sent to supplier or sales
+
+// Object keys that should NEVER appear in a sales-bound payload, regardless of where they sit.
+const SALES_FORBIDDEN_KEYS = new Set([
+  'price_cost', 'cost_price', 'cost_price_zh', 'cost_price_en',
+  'curator_notes', 'review_notes', 'source_quote',
+]);
+
+export function sanitizeFieldsForRole(fields, role) {
+  if (role === 'curator' || !fields) return fields;
+  const out = {};
+  for (const [id, f] of Object.entries(fields)) {
+    if (role === 'sales' && COST_FIELD_IDS.has(id)) continue;
+    if (CURATOR_PRIVATE_FIELD_IDS.has(id)) continue;
+    out[id] = f;
+  }
+  return out;
+}
+
+export function sanitizeAtomsForRole(atoms, role) {
+  if (role === 'curator' || !Array.isArray(atoms)) return atoms;
+  return atoms.map(a => {
+    const copy = { ...a };
+    for (const k of ATOM_PRIVATE_KEYS) delete copy[k];
+    return copy;
+  });
+}
+
+export function sanitizeRolepackForRole(data, role) {
+  if (role === 'curator' || !data) return data;
+  // RolePack data already excludes cost — publish.js never copies it. Defensive copy:
+  const copy = { ...data };
+  delete copy.cost_price;
+  delete copy.cost_price_zh;
+  delete copy.cost_price_en;
+  return copy;
+}
+
+// T5.8 — defense-in-depth recursive scrubber. Wrap any GET response that goes
+// to a sales user. Curator/supplier responses pass through untouched (other
+// scrubbers handle their narrower carve-outs).
+export function sanitizeForRole(data, role) {
+  if (role !== 'sales' || data == null) return data;
+  return scrub(data);
+}
+
+function scrub(value) {
+  if (Array.isArray(value)) return value.map(scrub);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (SALES_FORBIDDEN_KEYS.has(k)) continue;
+      out[k] = scrub(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+// ── T3.1 — supplier-scoped (shared) Section 1 fields ─────────────────
+// These five fields live in supplier_company_info, not submission_fields.
+// Edits made on any product page propagate across all of that supplier's products.
+export const SUPPLIER_SCOPED_FIELDS = ['company_name', 'company_hq', 'company_founded', 'company_team', 'company_clients'];
+const SUPPLIER_SCOPED_LABELS = {
+  company_name:    { zh: '公司名称',     en: 'Company name' },
+  company_hq:      { zh: '总部',         en: 'Headquarters' },
+  company_founded: { zh: '成立年份',     en: 'Founded' },
+  company_team:    { zh: '团队规模',     en: 'Team size' },
+  company_clients: { zh: '现有企业客户', en: 'Enterprise clients' },
+};
+const SUPPLIER_SCOPED_OPTIONAL = new Set(['company_founded', 'company_team', 'company_clients']);
+
+export function isSupplierScoped(fieldId) {
+  return SUPPLIER_SCOPED_FIELDS.includes(fieldId);
+}
+
+export async function loadSupplierCompanyFields(env, supplierId) {
+  const row = await env.DB.prepare(
+    'SELECT * FROM supplier_company_info WHERE supplier_id = ?'
+  ).bind(supplierId).first();
+  const out = {};
+  for (const fid of SUPPLIER_SCOPED_FIELDS) {
+    const vz = row?.[`${fid}_zh`] || '';
+    const ve = row?.[`${fid}_en`] || '';
+    out[fid] = {
+      section: 1,
+      scope: 'supplier',
+      label: SUPPLIER_SCOPED_LABELS[fid],
+      value: (vz || ve) ? { zh: vz, en: ve } : '',
+      status: (vz || ve) ? 'filled' : 'empty',
+      optional: SUPPLIER_SCOPED_OPTIONAL.has(fid),
+    };
+  }
+  return out;
+}
+
+export async function writeSupplierCompanyField(env, supplierId, fieldId, valueZh, valueEn) {
+  if (!isSupplierScoped(fieldId)) throw new Error('not_supplier_scoped');
+  const exist = await env.DB.prepare(
+    'SELECT supplier_id FROM supplier_company_info WHERE supplier_id = ?'
+  ).bind(supplierId).first();
+  if (!exist) {
+    await env.DB.prepare(
+      'INSERT INTO supplier_company_info (supplier_id) VALUES (?)'
+    ).bind(supplierId).run();
+  }
+  // fieldId is whitelisted via isSupplierScoped — safe to interpolate.
+  await env.DB.prepare(
+    `UPDATE supplier_company_info SET ${fieldId}_zh = ?, ${fieldId}_en = ?, updated_at = datetime('now') WHERE supplier_id = ?`
+  ).bind(valueZh, valueEn, supplierId).run();
 }

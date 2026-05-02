@@ -3,22 +3,30 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useLocation, Navigate, Link } from 'react-router-dom';
-import { ProcessStepper, getPlatformSteps } from './chrome.jsx';
+import { getPlatformSteps, StepperContext } from './chrome.jsx';
 import { ScreenLanding } from './screens/landing.jsx';
 import { ScreenPortalLogin } from './screens/portal-login.jsx';
 import { ScreenSupplierHome } from './screens/supplier-home.jsx';
-import { ScreenRegister, ScreenOnboard, ScreenMulti } from './screens/onboard.jsx';
-import { ScreenForm } from './screens/form.jsx';
-import { ScreenConfirm, ScreenThanks, ScreenQueue, ScreenPublish } from './screens/other.jsx';
-import { ScreenWorkbench } from './screens/workbench.jsx';
-import { AssetGenerationOverlay, ScreenCatalog, ScreenRolepackDetail } from './screens/sales.jsx';
+import { ScreenV2Register } from './screens/v2/register.jsx';
+import { ScreenV2CompanySetup } from './screens/v2/company-setup.jsx';
+import { ScreenV2Onboard } from './screens/v2/onboard.jsx';
+import { ScreenV2Capabilities } from './screens/v2/capabilities.jsx';
+import { ScreenV2Roles } from './screens/v2/roles.jsx';
+import { ScreenV2RoleDetails } from './screens/v2/role-details.jsx';
+import { ScreenV2ServicePricing } from './screens/v2/service-pricing.jsx';
+import { ScreenV2Review } from './screens/v2/review.jsx';
+import { ScreenV2Done } from './screens/v2/done.jsx';
+import { ScreenV2CuratorInbox } from './screens/v2/curator-inbox.jsx';
+import { ScreenV2CuratorReview } from './screens/v2/curator-review.jsx';
+import { ScreenV2SalesLibrary, ScreenV2SalesRolepack } from './screens/v2/sales-library.jsx';
 import { TweaksPanel, TweakSection, TweakColor, TweakRadio, TweakSelect, TweakToggle, useTweaks } from './tweaks.jsx';
 import { AuthProvider, useAuth } from './auth.jsx';
 
 const TWEAK_DEFAULTS = {
-  supplierColor: '#6FA577',
-  curatorColor: '#8E7AB5',
-  salesColor: '#6E9CC9',
+  supplierColor: '#4DAC77',
+  curatorColor: '#8B5CF6',
+  salesColor: '#3B82F6',
+  supplierGradient: 'b',
   density: 'normal',
   warmth: 'neutral',
   roundness: 'soft',
@@ -44,19 +52,22 @@ function shade(hex, amt) {
 // Map a route to (platform, screenId, showStepper).
 // Stepper appears only on workflow steps — not on dashboards or login pages.
 function routeMeta(pathname) {
-  // Supplier intake flow
+  // Supplier v2 intake flow
   if (pathname === '/supplier/register')              return { platform: 'supplier', screen: 'register', stepper: true, requiresAuth: false };
-  if (/^\/supplier\/new\/[^/]+\/upload$/.test(pathname))   return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/new\/[^/]+\/identify$/.test(pathname)) return { platform: 'supplier', screen: 'multi',    stepper: true, requiresAuth: 'supplier' };
-  if (pathname.startsWith('/supplier/form/'))         return { platform: 'supplier', screen: 'form',     stepper: true, requiresAuth: 'supplier' };
-  if (pathname.startsWith('/supplier/confirm/'))      return { platform: 'supplier', screen: 'confirm',  stepper: true, requiresAuth: 'supplier' };
-  if (pathname.startsWith('/supplier/thanks/'))       return { platform: 'supplier', screen: 'thanks',   stepper: true, requiresAuth: 'supplier' };
-  // Supplier dashboard (or portal-login when logged out)
+  if (pathname === '/supplier/company-setup')         return { platform: 'supplier', screen: null,       stepper: false, requiresAuth: 'supplier' };
+  if (pathname === '/supplier/onboard')               return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/onboard\/[^/]+$/.test(pathname))  return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/intake\/[^/]+\/capabilities$/.test(pathname)) return { platform: 'supplier', screen: 'capabilities', stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/intake\/[^/]+\/roles$/.test(pathname))         return { platform: 'supplier', screen: 'roles',        stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/intake\/[^/]+\/role\/[^/]+\/details$/.test(pathname)) return { platform: 'supplier', screen: 'details', stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/intake\/[^/]+\/service-pricing$/.test(pathname)) return { platform: 'supplier', screen: 'pricing', stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/intake\/[^/]+\/review$/.test(pathname))         return { platform: 'supplier', screen: 'review',  stepper: true, requiresAuth: 'supplier' };
+  if (/^\/supplier\/intake\/[^/]+\/done$/.test(pathname))           return { platform: 'supplier', screen: 'done',    stepper: true, requiresAuth: 'supplier' };
+  // Supplier dashboard
   if (pathname === '/supplier')                        return { platform: 'supplier', screen: null,      stepper: false, requiresAuth: false };
   // Curator
-  if (pathname === '/curator')                         return { platform: 'curator', screen: 'queue',     stepper: true, requiresAuth: false };
-  if (pathname.startsWith('/curator/workbench/'))      return { platform: 'curator', screen: 'workbench', stepper: true, requiresAuth: 'curator' };
-  if (pathname.startsWith('/curator/publish/'))        return { platform: 'curator', screen: 'publish',   stepper: true, requiresAuth: 'curator' };
+  if (pathname === '/curator')                         return { platform: 'curator', screen: null, stepper: false, requiresAuth: false };
+  if (pathname.startsWith('/curator/intake/'))         return { platform: 'curator', screen: null, stepper: false, requiresAuth: 'curator' };
   // Sales
   if (pathname === '/sales')                           return { platform: 'sales', screen: null, stepper: false, requiresAuth: false };
   if (pathname.startsWith('/sales/rolepack/'))         return { platform: 'sales', screen: null, stepper: false, requiresAuth: 'sales' };
@@ -65,11 +76,40 @@ function routeMeta(pathname) {
 }
 
 function AppShell() {
-  const [lang, setLang] = useState('zh');
+  // T4.3 — initial language from localStorage; fall back to 'zh'.
+  const [lang, setLangRaw] = useState(() => {
+    if (typeof localStorage === 'undefined') return 'zh';
+    const stored = localStorage.getItem('rm_lang');
+    return stored === 'en' || stored === 'zh' ? stored : 'zh';
+  });
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // T4.3 — persist locally + server-side for logged-in users.
+  const setLang = (next) => {
+    setLangRaw(next);
+    try { localStorage.setItem('rm_lang', next); } catch {}
+    if (user) {
+      // Fire-and-forget; failure shouldn't block the UI.
+      fetch('/api/auth/me/language', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ language: next }),
+      }).catch(() => {});
+    }
+  };
+
+  // T4.3 — when user logs in, hydrate from their server-side preference.
+  useEffect(() => {
+    if (!user?.language) return;
+    if (user.language !== lang && (user.language === 'zh' || user.language === 'en')) {
+      setLangRaw(user.language);
+      try { localStorage.setItem('rm_lang', user.language); } catch {}
+    }
+  }, [user?.id]);
 
   // Apply CSS variables for the platform theme.
   useEffect(() => {
@@ -113,58 +153,75 @@ function AppShell() {
   );
   const steps = meta.platform ? getPlatformSteps(meta.platform, lang) : [];
 
+  // Pull a submission ID out of the current path so the stepper can navigate
+  // back to the right per-submission route.
+  // Pull intake_id + (optional) rolepack_id from current path so the stepper can
+  // navigate back to per-intake routes correctly.
+  const intakeMatch = location.pathname.match(
+    /^\/supplier\/intake\/([^/]+)(?:\/role\/([^/]+))?/
+  );
+  const currentIntakeId = intakeMatch?.[1] || null;
+  const currentRpId = intakeMatch?.[2] || null;
+
   const jumpToStep = (sid) => {
-    const route = {
-      register: '/supplier/register',
-      onboard: '/supplier/new/upload',
-      multi: '/supplier/new/identify',
-      form: '/supplier',  // pick an existing draft from the dashboard
-      confirm: '/supplier',
-      thanks: '/supplier',
-      queue: '/curator',
-      workbench: '/curator',
-      publish: '/curator',
-    }[sid];
-    if (route) navigate(route);
+    if (sid === 'register') return navigate('/supplier/register');
+    if (sid === 'onboard') {
+      return navigate(currentIntakeId ? `/supplier/onboard/${currentIntakeId}` : '/supplier/onboard');
+    }
+    if (!currentIntakeId) return navigate('/supplier');
+    const routes = {
+      capabilities: `/supplier/intake/${currentIntakeId}/capabilities`,
+      roles:        `/supplier/intake/${currentIntakeId}/roles`,
+      details:      currentRpId
+        ? `/supplier/intake/${currentIntakeId}/role/${currentRpId}/details`
+        : `/supplier/intake/${currentIntakeId}/roles`,
+      pricing:      `/supplier/intake/${currentIntakeId}/service-pricing`,
+      review:       `/supplier/intake/${currentIntakeId}/review`,
+      done:         `/supplier/intake/${currentIntakeId}/done`,
+    };
+    if (routes[sid]) navigate(routes[sid]);
   };
 
   return (
     <>
-      <div className={meta.platform ? 'platform-' + meta.platform : ''}>
-        {stepperVisible && (
-          <ProcessStepper
-            steps={steps}
-            currentScreen={meta.screen}
-            onJump={jumpToStep}
-          />
-        )}
+      <StepperContext.Provider value={{ steps, currentScreen: meta.screen, onJump: jumpToStep, visible: stepperVisible }}>
+      <div className={'app-root ' + (meta.platform ? 'platform-' + meta.platform : '')}>
+        <div className="app-route">
         <Routes>
           <Route path="/" element={<ScreenLanding lang={lang} setLang={setLang} />} />
 
-          {/* Supplier portal */}
+          {/* Supplier portal — v2 intake-based flow */}
           <Route path="/supplier" element={<SupplierLanding lang={lang} setLang={setLang} />} />
-          <Route path="/supplier/register" element={<RegisterRoute lang={lang} setLang={setLang} />} />
-          <Route path="/supplier/new/:id/upload" element={<RoleGate role="supplier" portal="/supplier"><UploadRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/new/:id/identify" element={<RoleGate role="supplier" portal="/supplier"><MultiRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/form/:id" element={<RoleGate role="supplier" portal="/supplier"><FormRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/confirm/:id" element={<RoleGate role="supplier" portal="/supplier"><ConfirmRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/thanks/:id" element={<RoleGate role="supplier" portal="/supplier"><ThanksRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/register" element={<V2RegisterRoute lang={lang} setLang={setLang} />} />
+          <Route path="/supplier/company-setup" element={<RoleGate role="supplier" portal="/supplier"><V2CompanySetupRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/onboard" element={<RoleGate role="supplier" portal="/supplier"><V2OnboardRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/onboard/:id" element={<RoleGate role="supplier" portal="/supplier"><V2OnboardRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/intake/:id/capabilities" element={<RoleGate role="supplier" portal="/supplier"><V2CapabilitiesRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/intake/:id/roles" element={<RoleGate role="supplier" portal="/supplier"><V2RolesRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/intake/:id/role/:rpId/details" element={<RoleGate role="supplier" portal="/supplier"><V2RoleDetailsRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/intake/:id/service-pricing" element={<RoleGate role="supplier" portal="/supplier"><V2ServicePricingRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/intake/:id/review" element={<RoleGate role="supplier" portal="/supplier"><V2ReviewRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/supplier/intake/:id/done" element={<RoleGate role="supplier" portal="/supplier"><V2DoneRoute lang={lang} setLang={setLang} /></RoleGate>} />
 
           {/* Curator portal */}
           <Route path="/curator" element={<CuratorLanding lang={lang} setLang={setLang} />} />
-          <Route path="/curator/workbench/:id" element={<RoleGate role="curator" portal="/curator"><WorkbenchRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/curator/publish/:id" element={<RoleGate role="curator" portal="/curator"><PublishRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/curator/intake/:id" element={<RoleGate role="curator" portal="/curator"><V2CuratorReviewRoute lang={lang} setLang={setLang} /></RoleGate>} />
 
           {/* Sales portal */}
           <Route path="/sales" element={<SalesLanding lang={lang} setLang={setLang} />} />
-          <Route path="/sales/rolepack/:id" element={<RoleGate role="sales" portal="/sales"><RolepackRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/sales/rolepack/:id" element={<RoleGate role="sales" portal="/sales"><V2SalesRolepackRoute lang={lang} setLang={setLang} /></RoleGate>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </div>
       </div>
 
       <TweaksPanel title="Tweaks">
-        <TweakSection title={lang === 'zh' ? '平台配色' : 'Platform colors'}>
+        <TweakSection title={lang === 'zh' ? '供应商绿' : 'Supplier green'}>
+          <SupplierGreenSwatches value={tweaks.supplierColor}
+            onPick={(v) => setTweak('supplierColor', v)} />
+        </TweakSection>
+        <TweakSection title={lang === 'zh' ? '平台配色(自定义)' : 'Platform colors (custom)'}>
           <TweakColor label={lang === 'zh' ? '供应商' : 'Supplier'} value={tweaks.supplierColor} onChange={(v) => setTweak('supplierColor', v)} />
           <TweakColor label={lang === 'zh' ? '策展人' : 'Curator'} value={tweaks.curatorColor} onChange={(v) => setTweak('curatorColor', v)} />
           <TweakColor label={lang === 'zh' ? '销售' : 'Sales'} value={tweaks.salesColor} onChange={(v) => setTweak('salesColor', v)} />
@@ -182,6 +239,7 @@ function AppShell() {
             options={[{ value: 'zh', label: '中文' }, { value: 'en', label: 'EN' }]} />
         </TweakSection>
       </TweaksPanel>
+      </StepperContext.Provider>
     </>
   );
 }
@@ -222,9 +280,7 @@ function CuratorLanding({ lang, setLang }) {
   if (user.role !== 'curator') {
     return <WrongRole expected="curator" actual={user.role} lang={lang} onLogout={async () => { await logout(); navigate('/'); }} />;
   }
-  return <ScreenQueue lang={lang} setLang={setLang}
-    curatorName={user.name}
-    openSubmission={(id) => navigate(`/curator/workbench/${id}`)}
+  return <ScreenV2CuratorInbox lang={lang} setLang={setLang}
     onLogout={async () => { await logout(); navigate('/'); }} />;
 }
 
@@ -239,9 +295,8 @@ function SalesLanding({ lang, setLang }) {
   if (user.role !== 'sales') {
     return <WrongRole expected="sales" actual={user.role} lang={lang} onLogout={async () => { await logout(); navigate('/'); }} />;
   }
-  return <ScreenCatalog lang={lang} setLang={setLang}
-    openRolepack={(id) => navigate(`/sales/rolepack/${id}`)}
-    signOut={async () => { await logout(); navigate('/'); }} />;
+  return <ScreenV2SalesLibrary lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
 }
 
 function WrongRole({ expected, actual, lang, onLogout }) {
@@ -278,102 +333,113 @@ function WrongRole({ expected, actual, lang, onLogout }) {
 
 // ── Route components ──────────────────────────────
 
-function RegisterRoute({ lang, setLang }) {
+// ── v2 supplier routes ────────────────────────────────────────────
+function V2RegisterRoute({ lang, setLang }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   useEffect(() => {
-    if (user?.role === 'supplier') navigate('/supplier');
+    if (user?.role === 'supplier') navigate('/supplier/company-setup');
   }, [user]);
-  return <ScreenRegister lang={lang} setLang={setLang}
-    goNext={() => navigate('/supplier/new/upload')} />;
+  return <ScreenV2Register lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
 }
-
-function UploadRoute({ lang, setLang }) {
+function V2CompanySetupRoute({ lang, setLang }) {
   const navigate = useNavigate();
-  const { id } = useParams();
   const { logout } = useAuth();
-  return <ScreenOnboard lang={lang} setLang={setLang} submissionId={id}
-    goNext={() => navigate(`/supplier/new/${id}/identify`)}
+  return <ScreenV2CompanySetup lang={lang} setLang={setLang}
     onLogout={async () => { await logout(); navigate('/'); }} />;
 }
-
-function MultiRoute({ lang, setLang }) {
+function V2OnboardRoute({ lang, setLang }) {
   const navigate = useNavigate();
-  const { id } = useParams();
   const { logout } = useAuth();
-  return <ScreenMulti lang={lang} setLang={setLang} submissionId={id}
-    goNext={() => navigate(`/supplier/form/${id}`)}
+  return <ScreenV2Onboard lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
+}
+function V2CapabilitiesRoute({ lang, setLang }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  return <ScreenV2Capabilities lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
+}
+function V2RolesRoute({ lang, setLang }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  return <ScreenV2Roles lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
+}
+function V2RoleDetailsRoute({ lang, setLang }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  return <ScreenV2RoleDetails lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
+}
+function V2ServicePricingRoute({ lang, setLang }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  return <ScreenV2ServicePricing lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
+}
+function V2ReviewRoute({ lang, setLang }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  return <ScreenV2Review lang={lang} setLang={setLang}
+    onLogout={async () => { await logout(); navigate('/'); }} />;
+}
+function V2DoneRoute({ lang, setLang }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  return <ScreenV2Done lang={lang} setLang={setLang}
     onLogout={async () => { await logout(); navigate('/'); }} />;
 }
 
-function FormRoute({ lang, setLang }) {
+function V2CuratorReviewRoute({ lang, setLang }) {
   const navigate = useNavigate();
-  const { id } = useParams();
-  const { logout, supplier } = useAuth();
-  return <ScreenForm lang={lang} setLang={setLang} submissionId={id}
-    supplierName={supplier?.short_name ?? supplier?.name}
-    goNext={() => navigate(`/supplier/confirm/${id}`)}
+  const { logout } = useAuth();
+  return <ScreenV2CuratorReview lang={lang} setLang={setLang}
     onLogout={async () => { await logout(); navigate('/'); }} />;
 }
 
-function ConfirmRoute({ lang, setLang }) {
+function V2SalesRolepackRoute({ lang, setLang }) {
   const navigate = useNavigate();
-  const { id } = useParams();
-  return <ScreenConfirm lang={lang} setLang={setLang} submissionId={id}
-    goNext={() => navigate(`/supplier/thanks/${id}`)}
-    goBack={() => navigate(`/supplier/form/${id}`)} />;
-}
-
-function ThanksRoute({ lang, setLang }) {
-  const navigate = useNavigate();
-  const { logout, supplier } = useAuth();
-  return <ScreenThanks lang={lang} setLang={setLang}
-    supplierName={supplier?.short_name ?? supplier?.name}
-    goNext={() => navigate('/supplier')}
+  const { logout } = useAuth();
+  return <ScreenV2SalesRolepack lang={lang} setLang={setLang}
     onLogout={async () => { await logout(); navigate('/'); }} />;
 }
 
-function WorkbenchRoute({ lang, setLang }) {
-  const navigate = useNavigate();
-  const { id } = useParams();
-  const { user, logout } = useAuth();
-  return <ScreenWorkbench lang={lang} setLang={setLang} submissionId={id}
-    curatorName={user?.name}
-    goNext={() => navigate(`/curator/publish/${id}`)}
-    goBack={() => navigate('/curator')}
-    onLogout={async () => { await logout(); navigate('/'); }} />;
-}
+// 10 curated supplier-green swatches — calmer than #4FB17A, all readable
+// against white (WCAG AA at 14px+).
+const SUPPLIER_GREENS = [
+  { hex: '#4DAC77', name: 'Confirmed (RGB 77/172/119)' },
+  { hex: '#3B9863', name: 'Deep emerald' },
+  { hex: '#2E7D5B', name: 'Forest' },
+  { hex: '#1F8554', name: 'Jewel' },
+  { hex: '#5A9A78', name: 'Muted sage' },
+  { hex: '#6FA577', name: 'Original sage' },
+  { hex: '#3F8F6D', name: 'Pine' },
+  { hex: '#48875F', name: 'Slate green' },
+  { hex: '#5C8A4E', name: 'Olive' },
+  { hex: '#388E66', name: 'Verdant' },
+];
 
-function PublishRoute({ lang, setLang }) {
-  const navigate = useNavigate();
-  const { id } = useParams();
-  const { user, logout } = useAuth();
-  const [showOverlay, setShowOverlay] = useState(false);
+function SupplierGreenSwatches({ value, onPick }) {
   return (
-    <>
-      <ScreenPublish lang={lang} setLang={setLang} submissionId={id}
-        curatorName={user?.name}
-        goBack={() => navigate('/curator')}
-        onPublish={() => setShowOverlay(true)}
-        onLogout={async () => { await logout(); navigate('/'); }} />
-      {showOverlay && (
-        <AssetGenerationOverlay
-          lang={lang}
-          rolepackName={lang === 'zh' ? '产品 RolePack' : 'Product RolePack'}
-          onDone={() => { setShowOverlay(false); navigate('/curator'); }}
-        />
-      )}
-    </>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, padding: '4px 0' }}>
+      {SUPPLIER_GREENS.map(({ hex, name }) => {
+        const active = value?.toUpperCase() === hex.toUpperCase();
+        return (
+          <button key={hex} onClick={() => onPick(hex)} title={`${hex} — ${name}`}
+            style={{
+              width: '100%', aspectRatio: '1', borderRadius: 8,
+              background: hex, border: active ? '2px solid var(--ink)' : '1px solid rgba(0,0,0,0.08)',
+              cursor: 'pointer', padding: 0, position: 'relative',
+              boxShadow: active ? '0 0 0 2px white inset' : 'none',
+            }}>
+            {active && <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 14 }}>✓</span>}
+          </button>
+        );
+      })}
+    </div>
   );
-}
-
-function RolepackRoute({ lang, setLang }) {
-  const navigate = useNavigate();
-  const { id } = useParams();
-  const { logout } = useAuth();
-  return <ScreenRolepackDetail lang={lang} setLang={setLang} rolepackId={id}
-    goBack={() => navigate('/sales')}
-    signOut={async () => { await logout(); navigate('/'); }} />;
 }
 
 export default function App() {

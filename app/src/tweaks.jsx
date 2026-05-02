@@ -57,7 +57,7 @@ const TWEAKS_STYLE = `
 export function useTweaks(defaults) {
   const [values, setValues] = useState(() => {
     try {
-      const saved = localStorage.getItem('rm-tweaks');
+      const saved = localStorage.getItem('rm-tweaks-v3');
       return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
     } catch { return defaults; }
   });
@@ -66,7 +66,7 @@ export function useTweaks(defaults) {
       ? keyOrEdits : { [keyOrEdits]: val };
     setValues((prev) => {
       const next = { ...prev, ...edits };
-      try { localStorage.setItem('rm-tweaks', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('rm-tweaks-v3', JSON.stringify(next)); } catch {}
       return next;
     });
   }, []);

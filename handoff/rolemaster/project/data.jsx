@@ -347,3 +347,60 @@ window.AUDIT_LOG = [
   { who: "Wilson Chan", action: { zh: "确认并提交 TMX", en: "Confirmed and submitted TMX" }, time: "2026-04-30 11:22" },
   { who: "Grace Ho", action: { zh: "开始审阅", en: "Started review" }, time: "2026-04-30 13:45" },
 ];
+
+// ───────── AI Briefing for the curator workbench (S7) ─────────
+// Click-to-jump anchors reference field IDs in window.FIELDS.
+// The briefing runs against TMX submission (the only one with full data per CLAUDE.md §12).
+window.BRIEFING = {
+  what: {
+    zh: [
+      "面向香港持牌银行 AML 团队的智能交易监控副驾 —— 把规则告警的误报率从 40-60% 压到 5% 以下",
+      "规则 + CNN/LSTM 双模引擎,异常归因可被监管复盘,SAR 自动起草",
+      "标准部署 8-12 周,已在港 / 新两地银行投产",
+    ],
+    en: [
+      "An intelligent transaction-monitoring copilot for HK-licensed banks' AML teams — drops rule-engine false positives from 40-60% to under 5%",
+      "Hybrid rules + CNN/LSTM engine with regulator-auditable attribution and auto-drafted SAR reports",
+      "8-12 week standard deployment, in production at HK and SG banks",
+    ],
+  },
+  strong: [
+    { fieldId: "pain_main",      label: { zh: "主要痛点", en: "Main pain" } },
+    { fieldId: "pain_outcome",   label: { zh: "量化效果", en: "Quantified outcomes" } },
+    { fieldId: "do_capabilities",label: { zh: "产品能力", en: "Capabilities" } },
+    { fieldId: "do_knowledge",   label: { zh: "嵌入知识", en: "Embedded knowledge" } },
+    { fieldId: "deploy_regions", label: { zh: "落地区域", en: "Production regions" } },
+  ],
+  thin: [
+    { fieldId: "user_seniority", label: { zh: "使用者资历", en: "User seniority" }, why: { zh: "供应商写「合规团队」,缺职级粒度", en: "Supplier wrote 'compliance teams' — missing seniority detail" } },
+    { fieldId: "buyer_budget",   label: { zh: "采购预算区间", en: "Typical budget" }, why: { zh: "未填写,销售定价需要参考", en: "Empty — sales needs this for pricing anchor" } },
+    { fieldId: "svc_demo",       label: { zh: "演示偏好", en: "Demo preferences" }, why: { zh: "未填写,影响销售排期", en: "Empty — affects sales scheduling" } },
+    { fieldId: "svc_response",   label: { zh: "响应 SLA", en: "Response SLA" }, why: { zh: "未填写,合同条款需明确", en: "Empty — required for contract terms" } },
+  ],
+  questions: [
+    {
+      fieldIds: ["user_seniority"],
+      q: { zh: "AML 团队的具体职级分布是怎样的?初级、中级、高级各占多少?", en: "What's the seniority breakdown of the AML team — junior / mid / senior split?" },
+    },
+    {
+      fieldIds: ["buyer_budget"],
+      q: { zh: "中型银行的合规科技采购预算大致区间是?年化还是项目制?", en: "What's the typical compliance-tech budget range for mid-tier banks — annual or project-based?" },
+    },
+    {
+      fieldIds: ["svc_demo", "svc_response"],
+      q: { zh: "演示形式和响应 SLA 怎么定?能不能给一个标准条款?", en: "What's your standard for demos and response SLA — can we anchor on a default?" },
+    },
+    {
+      fieldIds: ["pain_outcome"],
+      q: { zh: "「误报降低 90%+」这个数字来自哪个客户案例?监管能拿到引用吗?", en: "Where does the '90%+ false positive reduction' figure come from — which customer case? Is it regulator-citable?" },
+    },
+    {
+      fieldIds: ["deploy_regions"],
+      q: { zh: "PBOC 适配现在的进度?有没有可披露的客户?", en: "What's the current status of PBOC adaptation, and any disclosable customers?" },
+    },
+    {
+      fieldIds: ["price_retail"],
+      q: { zh: "建议零售价的下限是怎么测算的?和成本之间的差额覆盖了哪些?", en: "How is the lower bound of suggested retail derived, and what does the margin over cost cover?" },
+    },
+  ],
+};

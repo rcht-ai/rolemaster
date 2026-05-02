@@ -19,7 +19,22 @@ async function request(method, path, body, opts = {}) {
     ...opts,
   });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); }
+    catch {
+      // Non-JSON body (HTML error page from CDN, auth redirect, 5xx).
+      // Build a clean Error so callers don't see "Unexpected token '<'".
+      const looksLikeHtml = /^\s*<!doctype|<html/i.test(text);
+      const msg = looksLikeHtml
+        ? `Server returned HTML (HTTP ${res.status}). Likely auth lost or endpoint missing.`
+        : `Bad response (HTTP ${res.status}): ${text.slice(0, 80)}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.body = text;
+      throw err;
+    }
+  }
   if (!res.ok) {
     const err = new Error(data?.error || `HTTP ${res.status}`);
     err.status = res.status;
@@ -45,27 +60,66 @@ export const auth = {
   logout: () => api.post('/auth/logout'),
 };
 
-export const subs = {
-  list: () => api.get('/submissions'),
-  get: (id) => api.get(`/submissions/${id}`),
-  create: (payload) => api.post('/submissions', payload),
-  patch: (id, body) => api.patch(`/submissions/${id}`, body),
-  patchField: (id, fid, body) => api.patch(`/submissions/${id}/fields/${fid}`, body),
-  patchFields: (id, updates) => api.patch(`/submissions/${id}/fields`, { updates }),
-  submit: (id) => api.post(`/submissions/${id}/submit`),
-  prefill: (id) => api.post(`/submissions/${id}/prefill`),
-  uploadFile: (id, formData) => api.upload(`/submissions/${id}/files`, formData),
-  listFiles: (id) => api.get(`/submissions/${id}/files`),
-  copilot: (id, text, lang) => api.post(`/submissions/${id}/copilot`, { text, lang }),
-  copilotHistory: (id) => api.get(`/submissions/${id}/copilot`),
-};
-
 export const curator = {
-  decide: (id, decision, comments) => api.post(`/curator/submissions/${id}/decision`, { decision, comments }),
-  publish: (id, data) => api.post(`/curator/submissions/${id}/publish`, { data }),
+  listIntakes: (status = 'submitted') => api.get(`/curator/intakes?status=${status}`),
+  publishRolepack: (rpId) => api.post(`/curator/rolepacks/${rpId}/publish`),
+  publishAll: (intakeId) => api.post(`/curator/intakes/${intakeId}/publish-all`),
 };
 
-export const catalog = {
-  list: () => api.get('/catalog'),
-  get: (id) => api.get(`/catalog/${id}`),
+export const sales = {
+  listRolepacks: () => api.get('/sales/rolepacks'),
+  getRolepack: (rpId) => api.get(`/sales/rolepacks/${rpId}`),
+};
+
+export const companyInfo = {
+  get: () => api.get('/suppliers/me/company-info'),
+  patch: (updates) => api.patch('/suppliers/me/company-info', { updates }),
+};
+
+// T5.3
+export const notifications = {
+  list: () => api.get('/notifications'),
+  unread: () => api.get('/notifications?unread=1'),
+  markRead: (ids) => api.post('/notifications/mark-read', { ids: ids || [] }),
+};
+
+// Taxonomies
+export const taxonomy = {
+  industries: () => api.get('/taxonomy/industries'),
+  createIndustry: (body) => api.post('/taxonomy/industries', body),
+  patchIndustry: (id, body) => api.patch(`/taxonomy/industries/${id}`, body),
+  deleteIndustry: (id) => api.delete(`/taxonomy/industries/${id}`),
+  regions: () => api.get('/taxonomy/regions'),
+  departments: () => api.get('/taxonomy/departments'),
+  companySizes: () => api.get('/taxonomy/company-sizes'),
+};
+
+// v2 — intake-based supplier flow
+export const intakes = {
+  list: () => api.get('/intakes'),
+  create: (body) => api.post('/intakes', body || {}),
+  get: (id) => api.get(`/intakes/${id}`),
+  patch: (id, body) => api.patch(`/intakes/${id}`, body),
+  remove: (id) => api.delete(`/intakes/${id}`),
+  uploadFile: (id, formData) => api.upload(`/intakes/${id}/files`, formData),
+  listFiles: (id) => api.get(`/intakes/${id}/files`),
+  renameFile: (id, fid, display_name) => api.patch(`/intakes/${id}/files/${fid}`, { display_name }),
+  deleteFile: (id, fid) => api.delete(`/intakes/${id}/files/${fid}`),
+  extractCapabilities: (id) => api.post(`/intakes/${id}/extract-capabilities`),
+  matchRoles: (id) => api.post(`/intakes/${id}/match-roles`),
+  finalize: (id) => api.post(`/intakes/${id}/finalize`),
+  // capabilities
+  addCapability: (id, body) => api.post(`/intakes/${id}/capabilities`, body),
+  patchCapabilities: (id, body) => api.patch(`/intakes/${id}/capabilities`, body),
+  patchCapability: (id, capId, body) => api.patch(`/intakes/${id}/capabilities/${capId}`, body),
+  deleteCapability: (id, capId) => api.delete(`/intakes/${id}/capabilities/${capId}`),
+  confirmCapabilities: (id) => api.patch(`/intakes/${id}/capabilities`, { confirm_all: true }),
+  // rolepacks
+  addRolepack: (id, body) => api.post(`/intakes/${id}/rolepacks`, body),
+  patchRolepack: (id, rpId, body) => api.patch(`/intakes/${id}/rolepacks/${rpId}`, body),
+  deleteRolepack: (id, rpId) => api.delete(`/intakes/${id}/rolepacks/${rpId}`),
+  prefillRolepack: (id, rpId, force) => api.post(`/intakes/${id}/rolepacks/${rpId}/prefill${force ? '?force=1' : ''}`),
+  generateRolepack: (id, rpId, force) => api.post(`/intakes/${id}/rolepacks/${rpId}/generate${force ? '?force=1' : ''}`),
+  rolepackCopilot: (id, rpId, message) => api.post(`/intakes/${id}/rolepacks/${rpId}/copilot`, { message }),
+  rolepackCopilotHistory: (id, rpId) => api.get(`/intakes/${id}/rolepacks/${rpId}/copilot`),
 };

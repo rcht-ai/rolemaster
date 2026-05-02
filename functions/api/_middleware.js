@@ -32,18 +32,19 @@ export async function onRequest(context) {
   const token = readTokenCookie(request);
   if (!token) return json({ error: 'unauthorized' }, 401);
 
+  let payload;
   try {
-    const payload = await verifyJWT(token, env.JWT_SECRET);
-    context.data = context.data || {};
-    context.data.user = {
-      id: payload.sub,
-      email: payload.email,
-      name: payload.name,
-      role: payload.role,
-      supplier_id: payload.sup ?? null,
-    };
-    return await context.next();
+    payload = await verifyJWT(token, env.JWT_SECRET);
   } catch {
     return json({ error: 'unauthorized' }, 401);
   }
+  context.data = context.data || {};
+  context.data.user = {
+    id: payload.sub,
+    email: payload.email,
+    name: payload.name,
+    role: payload.role,
+    supplier_id: payload.sup ?? null,
+  };
+  return await context.next();
 }

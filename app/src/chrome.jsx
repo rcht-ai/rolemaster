@@ -1,22 +1,126 @@
-// Shared chrome: app header, screen picker, language switcher, stepper.
+// Shared chrome: app header, screen picker, language switcher, stepper, bell.
 
+import { useEffect, useState, createContext, useContext } from 'react';
 import { t } from './i18n.js';
-import { SUPPLIER } from './data.js';
+import { notifications as notifApi } from './api.js';
 
-export const SCREENS = [
-  { id: "register", num: 1, side: "supplier", labelKey: "nav_register" },
-  { id: "onboard",  num: 2, side: "supplier", labelKey: "nav_onboard" },
-  { id: "multi",    num: 3, side: "supplier", labelKey: "nav_multi" },
-  { id: "form",     num: 4, side: "supplier", labelKey: "nav_form" },
-  { id: "confirm",  num: 5, side: "supplier", labelKey: "nav_confirm" },
-  { id: "thanks",   num: 5, side: "supplier", labelKey: "nav_thanks", suffix: "b" },
-  { id: "queue",    num: 6, side: "curator",  labelKey: "nav_queue" },
-  { id: "workbench",num: 7, side: "curator",  labelKey: "nav_workbench" },
-  { id: "publish",  num: 8, side: "curator",  labelKey: "nav_publish" },
-  { id: "saleslogin", num: 9, side: "sales",  labelKey: "s9_title" },
-  { id: "catalog",    num: 10, side: "sales", labelKey: "s10_title" },
-  { id: "rolepack",   num: 11, side: "sales", labelKey: "nav_rolepack" },
-];
+// AppShell publishes the current stepper config here so AppHeader can render
+// the progress bar directly under itself (instead of as a sibling above).
+export const StepperContext = createContext(null);
+
+// T5.3 — bell icon with unread badge + dropdown. Polls every 60s while mounted.
+export function NotificationBell({ lang, onNavigate }) {
+  const [items, setItems] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const res = await notifApi.list();
+      setItems(res.items || []);
+      setUnread(res.unread || 0);
+    } catch {}
+  };
+
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  const click = async (n) => {
+    try { await notifApi.markRead([n.id]); } catch {}
+    setOpen(false);
+    if (n.type === 'rolepack_published' && n.payload?.intake_id && n.payload?.rolepack_id) {
+      window.location.assign(`/supplier/intake/${n.payload.intake_id}/role/${n.payload.rolepack_id}/details`);
+      return;
+    }
+    if (n.payload?.submissionId && onNavigate) onNavigate(n.payload.submissionId, n.type);
+    refresh();
+  };
+
+  const markAll = async () => {
+    try { await notifApi.markRead([]); } catch {}
+    refresh();
+  };
+
+  const labelFor = (n) => {
+    const p = n.payload || {};
+    const product = p.productName || p.product_name || '';
+    if (n.type === 'rolepack_published') {
+      const role = lang === 'zh' ? (p.role_name_zh || p.role_name_en) : (p.role_name_en || p.role_name_zh);
+      return lang === 'zh' ? `${role || p.rp_label} 已发布到销售库` : `${role || p.rp_label} published to sales library`;
+    }
+    if (n.type === 'submission_approved')  return lang === 'zh' ? `${product} 已批准` : `${product} approved`;
+    if (n.type === 'submission_revision')  return lang === 'zh' ? `${product} 需修改` : `${product} needs revision`;
+    if (n.type === 'submission_published') return lang === 'zh' ? `${product} 已发布` : `${product} published`;
+    if (n.type === 'submission_held')      return lang === 'zh' ? `${product} 暂缓` : `${product} on hold`;
+    if (n.type === 'comment')              return lang === 'zh' ? `${p.from || ''} 留言:${p.body || ''}` : `${p.from || ''}: ${p.body || ''}`;
+    return n.type;
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(!open)}
+        title={lang === 'zh' ? '通知' : 'Notifications'}
+        style={{ position: 'relative', background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', padding: '4px 8px' }}>
+        🔔
+        {unread > 0 && (
+          <span style={{
+            position: 'absolute', top: 0, right: 0,
+            background: 'var(--plat-supplier)', color: 'white',
+            fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 999,
+            minWidth: 16, textAlign: 'center',
+            boxShadow: '0 0 0 2px white',
+          }}>{unread}</span>
+        )}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 6,
+          width: 320, maxHeight: 400, overflowY: 'auto',
+          background: 'white', border: '1px solid var(--line)', borderRadius: 10,
+          boxShadow: '0 12px 32px rgba(15,36,64,0.15)', zIndex: 100,
+        }}>
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy-ink)' }}>
+              {lang === 'zh' ? '通知' : 'Notifications'}
+            </span>
+            {unread > 0 && (
+              <button onClick={markAll}
+                style={{ fontSize: 11, color: 'var(--ink-3)', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                {lang === 'zh' ? '全部标为已读' : 'Mark all read'}
+              </button>
+            )}
+          </div>
+          {items.length === 0 ? (
+            <div style={{ padding: 20, fontSize: 12, color: 'var(--ink-3)', textAlign: 'center' }}>
+              {lang === 'zh' ? '暂无通知' : 'No notifications'}
+            </div>
+          ) : (
+            items.map(n => (
+              <button key={n.id} onClick={() => click(n)}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '10px 14px', border: 'none', cursor: 'pointer',
+                  background: n.read ? 'white' : 'color-mix(in srgb, var(--plat-supplier) 12%, white)',
+                  borderLeft: n.read ? 'none' : '3px solid var(--plat-supplier)',
+                  borderBottom: '1px solid var(--line-2)',
+                }}>
+                <div style={{ fontSize: 13, color: 'var(--navy-ink)', fontWeight: n.read ? 400 : 600 }}>
+                  {labelFor(n)}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>
+                  {new Date(n.createdAt).toLocaleString()}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function LangSwitcher({ lang, setLang }) {
   return (
@@ -61,7 +165,10 @@ export function PlatformHeader({ platform, lang, setLang, right, nav, contextLab
       </div>
       <PlatformPill platform={platform} lang={lang} />
       {contextLabel && (
-        <span className="supplier-name" style={{ marginLeft: 0 }}>· {contextLabel}</span>
+        <span style={{
+          marginLeft: 8, fontSize: 17, fontWeight: 700,
+          color: 'var(--navy-ink)', letterSpacing: '-0.01em',
+        }}>{contextLabel}</span>
       )}
       {nav && <nav style={{ display: "flex", gap: 4, marginLeft: 16 }}>{nav}</nav>}
       <div style={{ flex: 1 }} />
@@ -79,7 +186,7 @@ export function PlatformHeader({ platform, lang, setLang, right, nav, contextLab
   );
 }
 
-export function AppHeader({ lang, setLang, productLabel, savedAt, progress, supplierName, onLogout }) {
+export function AppHeader({ lang, setLang, productLabel, savedAt, progress, supplierName, onLogout, onNavigate }) {
   const right = (
     <>
       {typeof progress === "number" && (
@@ -97,20 +204,30 @@ export function AppHeader({ lang, setLang, productLabel, savedAt, progress, supp
           {t("save_state_saved", lang, { time: savedAt })}
         </div>
       )}
+      <NotificationBell lang={lang} onNavigate={onNavigate} />
     </>
   );
+  const stepper = useContext(StepperContext);
   return (
-    <PlatformHeader
-      platform="supplier"
-      lang={lang} setLang={setLang}
-      contextLabel={productLabel || supplierName || SUPPLIER.shortName}
-      right={right}
-      onLogout={onLogout}
-    />
+    <>
+      <PlatformHeader
+        platform="supplier"
+        lang={lang} setLang={setLang}
+        contextLabel={productLabel || supplierName || ''}
+        right={right}
+        onLogout={onLogout}
+      />
+      {stepper?.visible && (
+        <ProcessStepper
+          steps={stepper.steps}
+          currentScreen={stepper.currentScreen}
+          onJump={stepper.onJump} />
+      )}
+    </>
   );
 }
 
-export function CuratorHeader({ lang, setLang, activeTab = "subs", curatorName, onLogout }) {
+export function CuratorHeader({ lang, setLang, activeTab = "subs", curatorName, onLogout, onNavigate }) {
   const nav = (
     <>
       <button className={"nav-link " + (activeTab === "subs" ? "active" : "")}>
@@ -119,45 +236,15 @@ export function CuratorHeader({ lang, setLang, activeTab = "subs", curatorName, 
     </>
   );
   const right = (
-    <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
-      {lang === "zh" ? `审阅员:${curatorName ?? ""}` : `Curator: ${curatorName ?? ""}`}
-    </span>
+    <>
+      <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
+        {lang === "zh" ? `审阅员:${curatorName ?? ""}` : `Curator: ${curatorName ?? ""}`}
+      </span>
+      <NotificationBell lang={lang} onNavigate={onNavigate} />
+    </>
   );
   return (
     <PlatformHeader platform="curator" lang={lang} setLang={setLang} nav={nav} right={right} onLogout={onLogout} />
-  );
-}
-
-export function ScreenPicker({ screen, setScreen, lang }) {
-  const supplier = SCREENS.filter(s => s.side === "supplier");
-  const curator = SCREENS.filter(s => s.side === "curator");
-  const sales = SCREENS.filter(s => s.side === "sales");
-
-  const labelFor = (s) => {
-    if (s.id === "saleslogin") return lang === "zh" ? "登录" : "Login";
-    if (s.id === "catalog") return lang === "zh" ? "目录" : "Catalog";
-    if (s.id === "rolepack") return lang === "zh" ? "RolePack" : "RolePack";
-    return t(s.labelKey, lang);
-  };
-
-  const renderGroup = (list, side) => list.map(s => (
-    <button key={s.id} className={screen === s.id ? "active " + side : ""} onClick={() => setScreen(s.id)}>
-      <span className="step-num">{s.num}{s.suffix || ""}</span>
-      {side === "sales" ? labelFor(s) : t(s.labelKey, lang)}
-    </button>
-  ));
-
-  return (
-    <div className="screen-picker" role="navigation">
-      <div className="group-label">{lang === "zh" ? "供应商" : "Supplier"}</div>
-      {renderGroup(supplier, "supplier")}
-      <div className="divider" />
-      <div className="group-label">{lang === "zh" ? "策展人" : "Curator"}</div>
-      {renderGroup(curator, "curator")}
-      <div className="divider" />
-      <div className="group-label">{lang === "zh" ? "销售" : "Sales"}</div>
-      {renderGroup(sales, "sales")}
-    </div>
   );
 }
 
@@ -191,25 +278,14 @@ export function ProcessStepper({ steps, currentScreen, onJump }) {
 export function getPlatformSteps(platform, lang) {
   if (platform === "supplier") {
     return [
-      { id: "register", label: lang === "zh" ? "注册" : "Register", screenId: "register" },
-      { id: "upload", label: lang === "zh" ? "上传材料" : "Upload", screenId: "onboard" },
-      { id: "identify", label: lang === "zh" ? "产品识别" : "Identify", screenId: "multi" },
-      { id: "form", label: lang === "zh" ? "填写表单" : "Fill form", screenId: "form" },
-      { id: "submit", label: lang === "zh" ? "提交确认" : "Submit", screenIds: ["confirm", "thanks"], screenId: "confirm" },
-    ];
-  }
-  if (platform === "curator") {
-    return [
-      { id: "inbox", label: lang === "zh" ? "审阅队列" : "Inbox", screenId: "queue" },
-      { id: "review", label: lang === "zh" ? "策展审核" : "Review", screenId: "workbench" },
-      { id: "publish", label: lang === "zh" ? "发布上线" : "Publish", screenId: "publish" },
-    ];
-  }
-  if (platform === "sales") {
-    return [
-      { id: "login", label: lang === "zh" ? "登录" : "Sign in", screenId: "saleslogin" },
-      { id: "browse", label: lang === "zh" ? "浏览目录" : "Browse catalog", screenId: "catalog" },
-      { id: "view", label: lang === "zh" ? "查看 RolePack" : "View RolePack", screenId: "rolepack" },
+      { id: "register",     label: lang === "zh" ? "概览"       : "Overview",    screenId: "register" },
+      { id: "onboard",      label: lang === "zh" ? "产品资料"   : "Product",     screenId: "onboard" },
+      { id: "capabilities", label: lang === "zh" ? "能力梳理"   : "Capabilities", screenId: "capabilities" },
+      { id: "roles",        label: lang === "zh" ? "岗位匹配"   : "Roles",       screenId: "roles" },
+      { id: "details",      label: lang === "zh" ? "完善岗位"   : "Details",     screenId: "details" },
+      { id: "pricing",      label: lang === "zh" ? "服务与价格" : "Pricing",     screenId: "pricing" },
+      { id: "review",       label: lang === "zh" ? "最终确认"   : "Review",      screenId: "review" },
+      { id: "done",         label: lang === "zh" ? "完成"       : "Done",        screenId: "done" },
     ];
   }
   return [];
