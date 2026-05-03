@@ -52,19 +52,19 @@ function shade(hex, amt) {
 // Map a route to (platform, screenId, showStepper).
 // Stepper appears only on workflow steps — not on dashboards or login pages.
 function routeMeta(pathname) {
-  // Supplier v2 intake flow
-  if (pathname === '/supplier/register')              return { platform: 'supplier', screen: 'register', stepper: true, requiresAuth: false };
-  if (pathname === '/supplier/company-setup')         return { platform: 'supplier', screen: null,       stepper: false, requiresAuth: 'supplier' };
-  if (pathname === '/supplier/onboard')               return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/onboard\/[^/]+$/.test(pathname))  return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/intake\/[^/]+\/capabilities$/.test(pathname)) return { platform: 'supplier', screen: 'capabilities', stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/intake\/[^/]+\/roles$/.test(pathname))         return { platform: 'supplier', screen: 'roles',        stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/intake\/[^/]+\/role\/[^/]+\/details$/.test(pathname)) return { platform: 'supplier', screen: 'details', stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/intake\/[^/]+\/service-pricing$/.test(pathname)) return { platform: 'supplier', screen: 'pricing', stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/intake\/[^/]+\/review$/.test(pathname))         return { platform: 'supplier', screen: 'review',  stepper: true, requiresAuth: 'supplier' };
-  if (/^\/supplier\/intake\/[^/]+\/done$/.test(pathname))           return { platform: 'supplier', screen: 'done',    stepper: true, requiresAuth: 'supplier' };
-  // Supplier dashboard
-  if (pathname === '/supplier')                        return { platform: 'supplier', screen: null,      stepper: false, requiresAuth: false };
+  // Capability Partner (URL: /partners). JWT role + DB column stay 'supplier'.
+  if (pathname === '/partners/register')              return { platform: 'supplier', screen: 'register', stepper: true, requiresAuth: false };
+  if (pathname === '/partners/company-setup')         return { platform: 'supplier', screen: null,       stepper: false, requiresAuth: 'supplier' };
+  if (pathname === '/partners/onboard')               return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
+  if (/^\/partners\/onboard\/[^/]+$/.test(pathname))  return { platform: 'supplier', screen: 'onboard',  stepper: true, requiresAuth: 'supplier' };
+  if (/^\/partners\/intake\/[^/]+\/capabilities$/.test(pathname)) return { platform: 'supplier', screen: 'capabilities', stepper: true, requiresAuth: 'supplier' };
+  if (/^\/partners\/intake\/[^/]+\/roles$/.test(pathname))         return { platform: 'supplier', screen: 'roles',        stepper: true, requiresAuth: 'supplier' };
+  if (/^\/partners\/intake\/[^/]+\/role\/[^/]+\/details$/.test(pathname)) return { platform: 'supplier', screen: 'details', stepper: true, requiresAuth: 'supplier' };
+  if (/^\/partners\/intake\/[^/]+\/service-pricing$/.test(pathname)) return { platform: 'supplier', screen: 'pricing', stepper: true, requiresAuth: 'supplier' };
+  if (/^\/partners\/intake\/[^/]+\/review$/.test(pathname))         return { platform: 'supplier', screen: 'review',  stepper: true, requiresAuth: 'supplier' };
+  if (/^\/partners\/intake\/[^/]+\/done$/.test(pathname))           return { platform: 'supplier', screen: 'done',    stepper: true, requiresAuth: 'supplier' };
+  // Capability Partner dashboard
+  if (pathname === '/partners')                        return { platform: 'supplier', screen: null,      stepper: false, requiresAuth: false };
   // Curator
   if (pathname === '/curator')                         return { platform: 'curator', screen: null, stepper: false, requiresAuth: false };
   if (pathname.startsWith('/curator/intake/'))         return { platform: 'curator', screen: null, stepper: false, requiresAuth: 'curator' };
@@ -158,26 +158,26 @@ function AppShell() {
   // Pull intake_id + (optional) rolepack_id from current path so the stepper can
   // navigate back to per-intake routes correctly.
   const intakeMatch = location.pathname.match(
-    /^\/supplier\/intake\/([^/]+)(?:\/role\/([^/]+))?/
+    /^\/partners\/intake\/([^/]+)(?:\/role\/([^/]+))?/
   );
   const currentIntakeId = intakeMatch?.[1] || null;
   const currentRpId = intakeMatch?.[2] || null;
 
   const jumpToStep = (sid) => {
-    if (sid === 'register') return navigate('/supplier/register');
+    if (sid === 'register') return navigate('/partners/register');
     if (sid === 'onboard') {
-      return navigate(currentIntakeId ? `/supplier/onboard/${currentIntakeId}` : '/supplier/onboard');
+      return navigate(currentIntakeId ? `/partners/onboard/${currentIntakeId}` : '/partners/onboard');
     }
-    if (!currentIntakeId) return navigate('/supplier');
+    if (!currentIntakeId) return navigate('/partners');
     const routes = {
-      capabilities: `/supplier/intake/${currentIntakeId}/capabilities`,
-      roles:        `/supplier/intake/${currentIntakeId}/roles`,
+      capabilities: `/partners/intake/${currentIntakeId}/capabilities`,
+      roles:        `/partners/intake/${currentIntakeId}/roles`,
       details:      currentRpId
-        ? `/supplier/intake/${currentIntakeId}/role/${currentRpId}/details`
-        : `/supplier/intake/${currentIntakeId}/roles`,
-      pricing:      `/supplier/intake/${currentIntakeId}/service-pricing`,
-      review:       `/supplier/intake/${currentIntakeId}/review`,
-      done:         `/supplier/intake/${currentIntakeId}/done`,
+        ? `/partners/intake/${currentIntakeId}/role/${currentRpId}/details`
+        : `/partners/intake/${currentIntakeId}/roles`,
+      pricing:      `/partners/intake/${currentIntakeId}/service-pricing`,
+      review:       `/partners/intake/${currentIntakeId}/review`,
+      done:         `/partners/intake/${currentIntakeId}/done`,
     };
     if (routes[sid]) navigate(routes[sid]);
   };
@@ -190,18 +190,19 @@ function AppShell() {
         <Routes>
           <Route path="/" element={<ScreenLanding lang={lang} setLang={setLang} />} />
 
-          {/* Supplier portal — v2 intake-based flow */}
-          <Route path="/supplier" element={<SupplierLanding lang={lang} setLang={setLang} />} />
-          <Route path="/supplier/register" element={<V2RegisterRoute lang={lang} setLang={setLang} />} />
-          <Route path="/supplier/company-setup" element={<RoleGate role="supplier" portal="/supplier"><V2CompanySetupRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/onboard" element={<RoleGate role="supplier" portal="/supplier"><V2OnboardRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/onboard/:id" element={<RoleGate role="supplier" portal="/supplier"><V2OnboardRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/intake/:id/capabilities" element={<RoleGate role="supplier" portal="/supplier"><V2CapabilitiesRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/intake/:id/roles" element={<RoleGate role="supplier" portal="/supplier"><V2RolesRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/intake/:id/role/:rpId/details" element={<RoleGate role="supplier" portal="/supplier"><V2RoleDetailsRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/intake/:id/service-pricing" element={<RoleGate role="supplier" portal="/supplier"><V2ServicePricingRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/intake/:id/review" element={<RoleGate role="supplier" portal="/supplier"><V2ReviewRoute lang={lang} setLang={setLang} /></RoleGate>} />
-          <Route path="/supplier/intake/:id/done" element={<RoleGate role="supplier" portal="/supplier"><V2DoneRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          {/* Capability Partner portal — v2 intake-based flow.
+              JWT role and DB column stay 'supplier' (legacy); only the URL is /partners. */}
+          <Route path="/partners" element={<SupplierLanding lang={lang} setLang={setLang} />} />
+          <Route path="/partners/register" element={<V2RegisterRoute lang={lang} setLang={setLang} />} />
+          <Route path="/partners/company-setup" element={<RoleGate role="supplier" portal="/partners"><V2CompanySetupRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/onboard" element={<RoleGate role="supplier" portal="/partners"><V2OnboardRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/onboard/:id" element={<RoleGate role="supplier" portal="/partners"><V2OnboardRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/intake/:id/capabilities" element={<RoleGate role="supplier" portal="/partners"><V2CapabilitiesRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/intake/:id/roles" element={<RoleGate role="supplier" portal="/partners"><V2RolesRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/intake/:id/role/:rpId/details" element={<RoleGate role="supplier" portal="/partners"><V2RoleDetailsRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/intake/:id/service-pricing" element={<RoleGate role="supplier" portal="/partners"><V2ServicePricingRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/intake/:id/review" element={<RoleGate role="supplier" portal="/partners"><V2ReviewRoute lang={lang} setLang={setLang} /></RoleGate>} />
+          <Route path="/partners/intake/:id/done" element={<RoleGate role="supplier" portal="/partners"><V2DoneRoute lang={lang} setLang={setLang} /></RoleGate>} />
 
           {/* Curator portal */}
           <Route path="/curator" element={<CuratorLanding lang={lang} setLang={setLang} />} />
@@ -261,7 +262,7 @@ function SupplierLanding({ lang, setLang }) {
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-3)' }}>…</div>;
   if (!user) {
     return <ScreenPortalLogin platform="supplier" lang={lang} setLang={setLang}
-      onSuccess={() => navigate('/supplier')} />;
+      onSuccess={() => navigate('/partners')} />;
   }
   if (user.role !== 'supplier') {
     return <WrongRole expected="supplier" actual={user.role} lang={lang} onLogout={async () => { await logout(); navigate('/'); }} />;
@@ -338,7 +339,7 @@ function V2RegisterRoute({ lang, setLang }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   useEffect(() => {
-    if (user?.role === 'supplier') navigate('/supplier/company-setup');
+    if (user?.role === 'supplier') navigate('/partners/company-setup');
   }, [user]);
   return <ScreenV2Register lang={lang} setLang={setLang}
     onLogout={async () => { await logout(); navigate('/'); }} />;

@@ -143,10 +143,12 @@ export function BrandMark({ size = 22 }) {
 }
 
 export function PlatformPill({ platform, lang }) {
+  // User-facing labels only — the internal `platform` key + JWT role stay the
+  // same (`supplier` / `curator` / `sales`) so backend code is unchanged.
   const labels = {
-    supplier: { zh: "供应商", en: "Supplier" },
-    curator:  { zh: "策展人", en: "Curator" },
-    sales:    { zh: "销售",   en: "Sales" },
+    supplier: { zh: "能力伙伴", en: "Capability Partner" },
+    curator:  { zh: "策展人",   en: "Curator" },
+    sales:    { zh: "销售",     en: "Sales" },
   };
   return (
     <span className="platform-pill">
